@@ -44,7 +44,7 @@ def main():
 
     dict = construct(tagger)
 
-    f = open(cfg.PATH_TO_VOCABU, 'w')
+    f = open(cfg.PATH_TO_VOCAB, 'w')
     f.write("\n".join(dict))
     f.close
     print("Successfully constructed!")
