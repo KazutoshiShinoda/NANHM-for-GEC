@@ -13,7 +13,7 @@ def _tokenize(text, tagger):
         feature = node[i].split("\t")
         if feature[0] == "EOS":
             break
-        sentence.append(feature[2])
+        sentence.append(feature[0])
     return sentence
 
 def construct(tagger):
