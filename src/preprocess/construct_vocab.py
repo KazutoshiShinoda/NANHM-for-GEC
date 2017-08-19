@@ -18,17 +18,20 @@ def _tokenize(text, tagger):
 
 def construct(tagger):
     f = open(cfg.PATH_TO_VGR_domain_text)
+    g = open(cfg.PATH_TO_X_TRAIN, 'w')
     line = f.readline()
     dic = Dictionary()
     i = 0
     while line:
         sentence = _tokenize(line, tagger)
+        g.write(" ".join(sentence)+"\n")
         dic.add_documents([sentence])
         line = f.readline()
         i += 1
         if i == 100:
             break
     f.close
+    g.close
     return list(dic.itervalues())
 
 def main():
@@ -42,10 +45,10 @@ def main():
     else:
         tagger = MeCab.Tagger("-Ochasen")
 
-    dict = construct(tagger)
+    dic = construct(tagger)
 
     f = open(cfg.PATH_TO_VOCAB, 'w')
-    f.write("\n".join(dict))
+    f.write("\n".join(dic))
     f.close
     print("Successfully constructed!")
 
