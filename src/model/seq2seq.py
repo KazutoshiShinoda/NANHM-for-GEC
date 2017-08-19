@@ -3,7 +3,7 @@
 import argparse
 
 from nltk.translate import bleu_score
-import numpy
+import numpy as np
 import progressbar
 import six
 
@@ -22,7 +22,7 @@ EOS = 1
 
 def sequence_embed(embed, xs):
     x_len = [len(x) for x in xs]
-    x_section = numpy.cumsum(x_len[:-1])
+    x_section = np.cumsum(x_len[:-1])
     ex = embed(F.concat(xs, axis=0))
     exs = F.split_axis(ex, x_section, 0)
     return exs
@@ -92,7 +92,7 @@ class Seq2seq(chainer.Chain):
         # Remove EOS taggs
         outs = []
         for y in result:
-            inds = numpy.argwhere(y == EOS)
+            inds = np.argwhere(y == EOS)
             if len(inds) > 0:
                 y = y[:inds[0, 0]]
             outs.append(y)
@@ -108,7 +108,7 @@ def convert(batch, device):
         else:
             xp = cuda.cupy.get_array_module(*batch)
             concat = xp.concatenate(batch, axis=0)
-            sections = numpy.cumsum([len(x) for x in batch[:-1]], dtype='i')
+            sections = np.cumsum([len(x) for x in batch[:-1]], dtype='i')
             concat_dev = chainer.dataset.to_device(device, concat)
             batch_dev = cuda.cupy.split(concat_dev, sections)
             return batch_dev
@@ -169,7 +169,7 @@ def load_data(vocabulary, path):
     with open(path) as f:
         for line in bar(f, max_value=n_lines):
             words = line.strip().split()
-            array = numpy.array([vocabulary.get(w, UNK) for w in words], 'i')
+            array = np.array([vocabulary.get(w, UNK) for w in words], 'i')
             data.append(array)
     return data
 
@@ -278,7 +278,7 @@ def main():
 
         @chainer.training.make_extension(trigger=(200, 'iteration'))
         def translate(trainer):
-            source, target = test_data[numpy.random.choice(len(test_data))]
+            source, target = test_data[np.random.choice(len(test_data))]
             result = model.translate([model.xp.array(source)])[0]
 
             source_sentence = ' '.join([source_words[x] for x in source])
