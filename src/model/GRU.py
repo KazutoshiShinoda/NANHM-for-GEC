@@ -34,8 +34,8 @@ class Seq2seq(chainer.Chain):
         super(Seq2seq, self).__init__(
             embed_x=L.EmbedID(n_source_vocab, n_units),
             embed_y=L.EmbedID(n_target_vocab, n_units),
-            encoder=L.NStepLSTM(n_layers, n_units, n_units, 0.1),
-            decoder=L.NStepLSTM(n_layers, n_units, n_units, 0.1),
+            encoder=L.NStepGRU(n_layers, n_units, n_units, 0.1),
+            decoder=L.NStepGRU(n_layers, n_units, n_units, 0.1),
             W=L.Linear(n_units, n_target_vocab),
         )
         self.n_layers = n_layers
@@ -54,8 +54,8 @@ class Seq2seq(chainer.Chain):
 
         batch = len(xs)
         # None represents a zero vector in an encoder.
-        hx, cx, _ = self.encoder(None, None, exs)
-        _, _, os = self.decoder(hx, cx, eys)
+        hx, _ = self.encoder(None, exs)
+        _, os = self.decoder(hx, eys)
 
         # It is faster to concatenate data before calculating loss
         # because only one matrix multiplication is called.
@@ -75,13 +75,13 @@ class Seq2seq(chainer.Chain):
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
             xs = [x[::-1] for x in xs]
             exs = sequence_embed(self.embed_x, xs)
-            h, c, _ = self.encoder(None, None, exs)
+            h, _ = self.encoder(None, exs)
             ys = self.xp.full(batch, EOS, 'i')
             result = []
             for i in range(max_length):
                 eys = self.embed_y(ys)
                 eys = chainer.functions.split_axis(eys, batch, 0)
-                h, c, ys = self.decoder(h, c, eys)
+                h, ys = self.decoder(h, eys)
                 cys = chainer.functions.concat(ys, axis=0)
                 wy = self.W(cys)
                 ys = self.xp.argmax(wy.data, axis=1).astype('i')
@@ -212,6 +212,8 @@ def main():
                         help='maximum length of target sentence')
     parser.add_argument('--out', '-o', default='result',
                         help='directory to output the result')
+    parser.add_argument('--trigger', '-t', type=int, default=4000,
+                        help='define trigger')
     args = parser.parse_args()
 
     source_ids = load_vocabulary(args.SOURCE_VOCAB)
@@ -288,11 +290,11 @@ def main():
             print('#  result : ' + result_sentence)
             print('#  expect : ' + target_sentence)
 
-        trainer.extend(translate, trigger=(4000, 'iteration'))
+        trainer.extend(translate, trigger=(args.trigger, 'iteration'))
         trainer.extend(
             CalculateBleu(
                 model, test_data, 'validation/main/bleu', device=args.gpu),
-            trigger=(4000, 'iteration'))
+            trigger=(args.trigger, 'iteration'))
 
     print('start training')
     trainer.run()
@@ -300,4 +302,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

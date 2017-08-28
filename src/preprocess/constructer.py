@@ -3,7 +3,7 @@ import MeCab
 from gensim.corpora.dictionary import Dictionary
 import config as cfg
 
-
+char_rm_list = ["","\n"]
 
 def _tokenize(text, tagger):
     sentence = []
@@ -16,23 +16,39 @@ def _tokenize(text, tagger):
         sentence.append(feature[0])
     return sentence
 
-def construct(tagger):
+def construct_vocab_and_train(tagger):
     f = open(cfg.PATH_TO_VGR_domain_text)
     g = open(cfg.PATH_TO_X_TRAIN, 'w')
     line = f.readline()
-    dic = Dictionary()
+    word_dic = Dictionary()
+    char_dic = Dictionary()
+    word_dic.add_documents([["UNK","EOS"]])
+    char_dic.add_documents([["UNK","BOW"]])
     i = 0
     while line:
         sentence = _tokenize(line, tagger)
         g.write(" ".join(sentence)+"\n")
-        dic.add_documents([sentence])
+        word_dic.add_documents([sentence])
+        char_dic.add_documents([list(line)])
         line = f.readline()
         i += 1
         if i == 100:
             break
     f.close
     g.close
-    return list(dic.itervalues())
+    return list(word_dic.itervalues()), list(char_dic.itervalues())
+
+def construct_test(tagger):
+    f = open(cfg.PATH_TO_VGR_domain_text2)
+    g = open(cfg.PATH_TO_X_TEST, 'w')
+    line = f.readline()
+    while line:
+        sentence = _tokenize(line, tagger)
+        g.write(" ".join(sentence)+"\n")
+        line = f.readline()
+    f.close
+    g.close
+    return None
 
 def main():
     parser = argparse.ArgumentParser(description='Construct vocabularies from corpus...')
@@ -45,11 +61,18 @@ def main():
     else:
         tagger = MeCab.Tagger("-Ochasen")
 
-    dic = construct(tagger)
-
-    f = open(cfg.PATH_TO_VOCAB, 'w')
-    f.write("\n".join(dic))
+    word_dic, char_dic = construct_vocab_and_train(tagger)
+    construct_test(tagger)
+    for ng in char_rm_list:
+        if ng in char_dic:
+            char_dic.remove(ng)
+    
+    f = open(cfg.PATH_TO_WORD_VOCAB, 'w')
+    f.write("\n".join(word_dic))
     f.close
+    g = open(cfg.PATH_TO_CHAR_VOCAB, 'w')
+    g.write("\n".join(char_dic))
+    g.close
     print("Successfully constructed!")
 
 

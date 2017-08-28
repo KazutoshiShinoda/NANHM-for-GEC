@@ -212,6 +212,8 @@ def main():
                         help='maximum length of target sentence')
     parser.add_argument('--out', '-o', default='result',
                         help='directory to output the result')
+    parser.add_argument('--trigger', '-t', type=int, default=4000,
+                        help='define trigger')
     args = parser.parse_args()
 
     source_ids = load_vocabulary(args.SOURCE_VOCAB)
@@ -288,11 +290,11 @@ def main():
             print('#  result : ' + result_sentence)
             print('#  expect : ' + target_sentence)
 
-        trainer.extend(translate, trigger=(4000, 'iteration'))
+        trainer.extend(translate, trigger=(args.trigger, 'iteration'))
         trainer.extend(
             CalculateBleu(
                 model, test_data, 'validation/main/bleu', device=args.gpu),
-            trigger=(4000, 'iteration'))
+            trigger=(args.trigger, 'iteration'))
 
     print('start training')
     trainer.run()
