@@ -12,7 +12,6 @@ from chainer import cuda
 import chainer.functions as F
 import chainer.links as L
 from my_chainer.links.connection import n_step_gru as My
-#from my_chainer.links.connection import att_gru_decoder as D
 from chainer import reporter
 from chainer import training
 from chainer.training import extensions
@@ -75,7 +74,7 @@ class Seq2seq(chainer.Chain):
         print(len(ht[0]))
         print(len(ht[0][0]))
         '''
-        h_list, h_bar_list, c_s_list, z_s_list = self.decoder(ht, eys)
+        h_list, h_bar_list, c_s_list, z_s_list = self.decoder(None, ht, eys)
         
         '''
         print("os")
@@ -109,6 +108,8 @@ class Seq2seq(chainer.Chain):
         n_words = concat_ys_out.shape[0]
         perp = self.xp.exp(loss.data * batch / n_words)
         reporter.report({'perp': perp}, self)
+        
+        print("loss", loss)
         return loss
 
     def translate(self, xs, max_length=100):
@@ -126,7 +127,7 @@ class Seq2seq(chainer.Chain):
             for i in range(max_length):
                 eys = self.embed_y(ys)
                 eys = chainer.functions.split_axis(eys, batch, 0)
-                h_list, h_bar_list, c_s_list, z_s_list = self.decoder(ht, eys)
+                h_list, h_bar_list, c_s_list, z_s_list = self.decoder(None, ht, eys)
                 cys = chainer.functions.concat(h_list, axis=0)
                 wy = self.W(cys)
                 ys = self.xp.argmax(wy.data, axis=1).astype('i')

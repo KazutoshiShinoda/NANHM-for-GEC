@@ -40,7 +40,7 @@ class NStepBiGRU(n_step_rnn.BaseNStepRNN):
 
 
 def n_step_gru(
-        n_layers, dropout_ratio, hx, ws, bs, xs, W, B, **kwargs):
+        n_layers, dropout_ratio, h, hx, ws, bs, xs, W, B, **kwargs):
     """n_step_gru(n_layers, dropout_ratio, hx, ws, bs, xs)
 
     Stacked Uni-directional Gated Recurrent Unit function.
@@ -120,12 +120,12 @@ def n_step_gru(
 
     """
 
-    return n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs, W, B,
+    return n_step_gru_base(n_layers, dropout_ratio, h, hx, ws, bs, xs, W, B,
                            use_bi_direction=False, **kwargs)
 
 
 def n_step_bigru(
-        n_layers, dropout_ratio, hx, ws, bs, xs, **kwargs):
+        n_layers, dropout_ratio, h, hx, ws, bs, xs, W, B, **kwargs):
     """n_step_bigru(n_layers, dropout_ratio, hx, ws, bs, xs)
 
     Stacked Bi-directional Gated Recurrent Unit function.
@@ -223,11 +223,11 @@ def n_step_bigru(
 
     """
 
-    return n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs,
+    return n_step_gru_base(n_layers, dropout_ratio, h, hx, ws, bs, xs, W, B,
                            use_bi_direction=True, **kwargs)
 
 
-def n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs, W, B, 
+def n_step_gru_base(n_layers, dropout_ratio, h0, hx, ws, bs, xs, W, B, 
                     use_bi_direction, **kwargs):
     """n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs, use_bi_direction)
 
@@ -343,7 +343,7 @@ def n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs, W, B,
         phi_ht = list(map(lambda x: linear.linear(x, W1, B1), ht))
 
         xs_next = xs
-
+        
         for layer in six.moves.range(n_layers):
 
             def _one_directional_loop(di):
@@ -351,7 +351,7 @@ def n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs, W, B,
                 # di=1, backward GRU
                 xs_list = xs_next if di == 0 else reversed(xs_next)
                 layer_idx = direction * layer + di
-                #h = hx[layer_idx]
+                h = h0[layer_idx]
                 
                 # h:d_bar_s_1
                 # h_bar:d_s
@@ -360,14 +360,12 @@ def n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs, W, B,
                 print(len(xs_list[0]))
                 print(len(xs_list[0][0]))
                 '''
-                h = np.zeros((xs_list[0].shape), dtype=np.float32)
                 h_list = []
                 h_bar_list = []
                 c_s_list = []
                 z_s_list = []
                 for x in xs_list:
                     batch = x.shape[0]
-                    
                     if h.shape[0] > batch:
                         h, h_rest = split_axis.split_axis(h, [batch], axis=0)
                     else:
@@ -404,10 +402,9 @@ def n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs, W, B,
                     #concat_phi_d = F.concat(F.transpose(phi_d), axis=0)
                     
                     u_st = list(map(lambda x,y: 
-                                    (linear.linear(x, y.reshape(1,len(y)))).reshape(len(x),),
+                                    reshape.reshape((linear.linear(x, reshape.reshape(y,(1,len(y))))), (len(x),)),
                                     phi_ht, phi_d))   #(4)
                     
-
                     sum_u = list(map(F.sum, u_st))
                     alpha_st = list(map(lambda x,y:x/F.broadcast_to(y, x.shape), u_st, sum_u))   #(3)
                     z_s = list(map(F.argmax, alpha_st))
@@ -421,10 +418,10 @@ def n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs, W, B,
                     print(ht[0].shape)
                     '''
                     c_s = list(map(lambda x,y:
-                                         F.sum(F.broadcast_to(x.reshape(x.shape[0],1),y.shape)*y,axis=0),
+                                         F.sum(F.broadcast_to(reshape.reshape(x, (x.shape[0],1)), y.shape)*y,axis=0),
                                          alpha_st, ht))   #(2)
                     
-                    c_s_2d = list(map(lambda x:x.reshape(1,len(x)), c_s))
+                    c_s_2d = list(map(lambda x:reshape.reshape(x, (1,len(x))), c_s))
                     concat_c_s = F.concat(c_s_2d, axis=0)
                     
                     c_s = list(map(lambda x:F.broadcast_to(x,(1,len(x))), c_s))

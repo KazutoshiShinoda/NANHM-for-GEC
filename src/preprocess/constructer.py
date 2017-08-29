@@ -24,16 +24,12 @@ def construct_vocab_and_train(tagger):
     char_dic = Dictionary()
     word_dic.add_documents([["UNK","EOS"]])
     char_dic.add_documents([["UNK","BOW"]])
-    i = 0
     while line:
         sentence = _tokenize(line, tagger)
         g.write(" ".join(sentence)+"\n")
         word_dic.add_documents([sentence])
         char_dic.add_documents([list(line)])
         line = f.readline()
-        i += 1
-        if i == 100:
-            break
     f.close
     g.close
     return list(word_dic.itervalues()), list(char_dic.itervalues())
@@ -42,13 +38,19 @@ def construct_test(tagger):
     f = open(cfg.PATH_TO_VGR_domain_text2)
     g = open(cfg.PATH_TO_X_TEST, 'w')
     line = f.readline()
+    word_dic = Dictionary()
+    char_dic = Dictionary()
+    word_dic.add_documents([["UNK","EOS"]])
+    char_dic.add_documents([["UNK","BOW"]])
     while line:
         sentence = _tokenize(line, tagger)
         g.write(" ".join(sentence)+"\n")
+        word_dic.add_documents([sentence])
+        char_dic.add_documents([list(line)])
         line = f.readline()
     f.close
     g.close
-    return None
+    return list(word_dic.itervalues()), list(char_dic.itervalues())
 
 def main():
     parser = argparse.ArgumentParser(description='Construct vocabularies from corpus...')
@@ -62,10 +64,12 @@ def main():
         tagger = MeCab.Tagger("-Ochasen")
 
     word_dic, char_dic = construct_vocab_and_train(tagger)
-    construct_test(tagger)
+    word_dic2, char_dic2 = construct_test(tagger)
     for ng in char_rm_list:
         if ng in char_dic:
             char_dic.remove(ng)
+        if ng in char_dic2:
+            char_dic2.remove(ng)
     
     f = open(cfg.PATH_TO_WORD_VOCAB, 'w')
     f.write("\n".join(word_dic))
@@ -73,6 +77,14 @@ def main():
     g = open(cfg.PATH_TO_CHAR_VOCAB, 'w')
     g.write("\n".join(char_dic))
     g.close
+    
+    f = open(cfg.PATH_TO_WORD_VOCAB2, 'w')
+    f.write("\n".join(word_dic2))
+    f.close
+    g = open(cfg.PATH_TO_CHAR_VOCAB2, 'w')
+    g.write("\n".join(char_dic2))
+    g.close
+    
     print("Successfully constructed!")
 
 

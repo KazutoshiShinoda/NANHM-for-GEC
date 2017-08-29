@@ -17,6 +17,10 @@ PATH_TO_WORD_VOCAB = _CUR_DIR + '/data/vocab/word_vocab.txt'
 
 PATH_TO_CHAR_VOCAB = _CUR_DIR + '/data/vocab/char_vocab.txt'
 
+PATH_TO_WORD_VOCAB2 = _CUR_DIR + '/data/vocab/word_vocab2.txt'
+
+PATH_TO_CHAR_VOCAB2 = _CUR_DIR + '/data/vocab/char_vocab2.txt'
+
 # 入出力用データ
 
 PATH_TO_X_TRAIN = _CUR_DIR + '/data/train/X_train.txt'

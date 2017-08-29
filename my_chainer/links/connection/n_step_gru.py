@@ -109,7 +109,7 @@ class NStepGRUBase(link.ChainList):
             hx = variable.Variable(self.xp.zeros(shape, dtype=xs[0].dtype))
         return hx
 
-    def __call__(self, hx, xs, **kwargs):
+    def __call__(self, h0, hx, xs, **kwargs):
         """__call__(self, hx, xs)
 
         Calculate all hidden states and cell states.
@@ -133,15 +133,17 @@ class NStepGRUBase(link.ChainList):
             'Use chainer.using_config')
         argument.assert_kwargs_empty(kwargs)
 
-        assert isinstance(xs, (list, tuple))
+        assert isinstance(xs, (list, tuple)), "xs in not a list or tupple: %r" %type(xs)
         indices = argsort_list_descent(xs)
 
         xs = permutate_list(xs, indices, inv=False)
         
-        if hx is None:
-            hx = self.init_hx(xs)
+        if h0 is None:
+            h0 = self.init_hx(xs)
         else:
-            hx = permutate_list(hx, indices, inv=False)
+            h0 = permutate_list(h0, indices, axis=1, inv=False)
+        
+        hx = permutate_list(hx, indices, inv=False)
         
         trans_x = transpose_sequence.transpose_sequence(xs)
         
@@ -158,7 +160,7 @@ class NStepGRUBase(link.ChainList):
         B = [b1, b2, b3]
 
         h_list, h_bar_list, c_s_list, z_s_list = self.rnn(
-            self.n_layers, self.dropout, hx, ws, bs, trans_x, W, B)
+            self.n_layers, self.dropout, h0, hx, ws, bs, trans_x, W, B)
         '''
         print(type(h_list),len(h_list))
         print(type(h_list[0]),len(h_list[0]))

@@ -12,10 +12,12 @@ from chainer import cuda
 import chainer.functions as F
 import chainer.links as L
 from my_chainer.links.connection import n_step_gru as My
-#from my_chainer.links.connection import att_gru_decoder as D
 from chainer import reporter
 from chainer import training
 from chainer.training import extensions
+
+import os
+os.environ["CHAINER_TYPE_CHECK"] = "0"
 
 #word-level
 UNK = 0
@@ -25,29 +27,57 @@ EOS = 1
 UNK = 0
 BOW = 1   # Boundary 0f Words
 
-source_words = {}
+#Hyper parameter
+Alpha = 0.5
+Beta = 0.5
+
+target_words = {}
+target_word_ids = {}
+target_chars = {}
+target_char_ids = {}
+
+char_hidden = []
 
 def sequence_embed(embed, xs):
     x_len = [len(x) for x in xs]
     x_section = np.cumsum(x_len[:-1])
-    print(type(F.concat(xs, axis=0)),F.concat(xs, axis=0))
     ex = embed(F.concat(xs, axis=0))
     exs = F.split_axis(ex, x_section, 0)
     return exs
 
 def convert_unk(embed, cs):
-    print(type(cs), cs)
+    cs = F.broadcast(cs)
     cexs = embed(cs)
-    return cexs
+    return (cexs,)
 
-def get_unk_hidden_vector(ex, pos, x, embed, encoder):
+def get_unk_hidden_vector(ex, pos, x, embed, encoder, char_hidden):
     if len(pos)==0:
+        char_hidden.extend([0]*len(ex))
         return ex
     else:
+        hidden=[]
+        for j in range(len(ex)):
+            if j in pos:
+                x_ = x[pos==j]
+                cexs = convert_unk(embed, x_[0])
+                hx, os = encoder(None, cexs)
+                hidden.append(os)
+                ex[j].data = hx[-1][-1].data
+            else:
+                hidden.append(0)
+        char_hidden.extend(hidden)
+        return ex
+        '''
+        hidden=[]
         for i, p in enumerate(pos):
             cexs = convert_unk(embed, x[i])
-            ex[p], _ = encoder(None, cexs)
+            hx, os = encoder(None, cexs)
+            ##ここが原因かも？？？？！！！！
+            ex[p].data = hx[-1][-1].data
+            hidden[p]=os
+        char_hidden.append(hidden)
         return ex
+        '''
 
 class Seq2seq(chainer.Chain):
 
@@ -56,28 +86,30 @@ class Seq2seq(chainer.Chain):
             embed_x=L.EmbedID(n_source_vocab, n_units),
             embed_y=L.EmbedID(n_target_vocab, n_units * 2),
             embed_xc=L.EmbedID(n_source_char, n_units),
-            embed_yc=L.EmbedID(n_target_char, n_units * 2),
+            embed_yc=L.EmbedID(n_target_char, n_units),
             encoder_f=L.NStepGRU(n_layers, n_units, n_units, 0.1),
             encoder_b=L.NStepGRU(n_layers, n_units, n_units, 0.1),
-            char_encoder=L.NStepGRU(n_layers, n_units * 2, n_units * 2, 0.1),
+            char_encoder=L.NStepGRU(n_layers, n_units, n_units, 0.1),
             decoder=My.NStepGRU(n_layers, n_units * 2, n_units * 2, 0.1),
-            #decoder_att=D.AttGRUdec(n_layers, n_units * 2, n_units * 2, n_target_vocab),
+            char_decoder=L.NStepGRU(n_layers, n_units, n_units, 0.1),
+            char_att_decoder=My.NStepGRU(n_layers, n_units, n_units, 0.1),
             W=L.Linear(n_units * 2, n_target_vocab),
+            W_hat=L.Linear(n_units * 4, n_units),
+            W_char=L.Linear(n_units, n_target_char),
         )
         self.n_layers = n_layers
         self.n_units = n_units
-
+        
     def __call__(self, xs, ys):
-        #print(len(xs), xs)
+        char_hidden=[]
+        
         wxs = [x[0] for x in xs]
         unk_xs = [x[1] for x in xs]
         unk_pos = [np.where(x==UNK)[0] for x in wxs]
+        concat_wxs = np.concatenate(wxs)
         
         wys = [y[0] for y in ys]
         unk_ys = [y[1] for y in ys]
-        
-        xs_f = xs
-        xs_b = [np.array([x[0][::-1],x[1][::-1]]) for x in xs]
         
         eos = self.xp.array([EOS], 'i')
         ys_in = [F.concat([eos, y[0]], axis=0) for y in ys]
@@ -86,8 +118,7 @@ class Seq2seq(chainer.Chain):
         # Both xs and ys_in are lists of arrays.
         exs = sequence_embed(self.embed_x, wxs)
         # Convert an UNK word vector into a char-hidden vector
-        exs = list(map(lambda s, t, u: get_unk_hidden_vector(s, t, u, self.embed_xc, self.char_encoder) , exs, unk_pos, unk_xs))
-        print("DONE!")
+        exs = list(map(lambda s, t, u: get_unk_hidden_vector(s, t, u, self.embed_xc, self.char_encoder, char_hidden) , exs, unk_pos, unk_xs))
         exs_f = exs
         exs_b = [ex[::-1] for ex in exs]
         eys = sequence_embed(self.embed_y, ys_in)
@@ -96,71 +127,250 @@ class Seq2seq(chainer.Chain):
         # None represents a zero vector in an encoder.
         _, hf = self.encoder_f(None, exs_f)
         _, hb = self.encoder_b(None, exs_b)
-        #hb = hb[::-1] <- するとエラー。しないのが正解？
         # 隠れ状態ベクトルの集合
         ht = list(map(lambda x,y: F.concat([x, y], axis=1), hf, hb))
         
-        '''
-        print(len(ht))
-        print(len(ht[0]))
-        print(len(ht[0][0]))
-        '''
-        h_list, h_bar_list, c_s_list, z_s_list = self.decoder(ht, eys)
-        
-        '''
-        print("os")
-        print(len(os))
-        print(len(os[0]), len(os[1]))
-        print(len(os[0][0]))
-        '''
+        h_list, h_bar_list, c_s_list, z_s_list = self.decoder(None, ht, eys)
         
         # It is faster to concatenate data before calculating loss
         # because only one matrix multiplication is called.
         os = h_list
-        '''
-        print(len(os), len(os[0]), len(os[0][0]))
-        print(len(ys_out),len(ys_out[0]))
-        '''
+        os_len = [len(s) for s in os]
+        os_section = np.cumsum(os_len[:-1])
         concat_os = F.concat(os, axis=0)
         concat_os_out = self.W(concat_os)
         concat_ys_out = F.concat(ys_out, axis=0)
-        '''
-        print(concat_os_out.shape)
-        print(concat_ys_out.shape)
-        '''
-        # If predicted word is UNK
-        pred_w = F.argmax(concat_os_out, axis=1)
-        UNKList = map(lambda x: x, pred_w)
         
-        loss = F.sum(F.softmax_cross_entropy(
-            concat_os_out, concat_ys_out, reduce='no')) / batch
+        loss_w = 0
+        loss_c1 = 0
+        loss_c2 = 0
+        
+        # If predicted word is UNK
+        concat_pred_w = F.argmax(concat_os_out, axis=1)
+        #concat_isUNK = concat_pred_w==0
+        
+        is_unk = concat_pred_w.data==UNK
+        if UNK in concat_pred_w.data:
+            print(True)
+            ##案２：
+            #全てconcat
+            #総単語数*2048
+            concat_c_s = F.concat(c_s_list, axis=0)
+            concat_h_bar = F.concat(h_bar_list, axis=0)
+            
+            c_ss = concat_c_s[is_unk]
+            h_bars = concat_h_bar[is_unk]
+            c = F.concat([c_ss, h_bars], axis=1)
+            ds_hats=F.relu(self.W_hat(c))
+            #ds_hat = F.reshape(ds_hat, (1,ds_hat.shape[0], ds_hat.shape[1]))
+            print("ds_hats:",ds_hats.shape)
+            
+            z_s_len = [len(z_s) - 1 for z_s in z_s_list]
+            z_s_section = np.cumsum(z_s_len[:-1])
+            valid_z_s_section = np.insert(z_s_section, 0, 0)
+            abs_z_s_list = [z_s_list[i] + valid_z_s_section[i] for i in range(len(z_s_list))]
+            concat_z_s = F.concat(abs_z_s_list, axis=0)
+            z_ss = concat_z_s[is_unk]
+            print("総z_s数:", np.sum(z_s_len))
+            print("総元単語数:", len(concat_wxs))
+            
+            true_wys = concat_ys_out[is_unk]
+            #"予想単語==UNK"の各ケースについて個別に処理
+            for i,wy in enumerate(true_wys):
+                bow = self.xp.array([BOW], 'i')
+                wy = int(wy.data)
+                print(target_words[wy])
+                if wy != UNK and wy != EOS:
+                    cys = np.array([[target_char_ids[c] for c in list(target_words[wy])]], np.int32)
+                elif wy == UNK:
+                    #本来ありえない
+                    cys = np.array([[target_char_ids['UNK']]], np.int32)
+                elif wy == EOS:
+                    cys = np.array([[target_char_ids['BOW']]], np.int32)
+                cys_in = [F.concat([bow, y], axis=0) for y in cys]
+                cys_out = [F.concat([y, bow], axis=0) for y in cys]
+                concat_cys_out = F.concat(cys_out, axis=0)
+                ceys = sequence_embed(self.embed_yc, cys_in)
+                z_s = int(z_ss[i].data)
+                
+                ds_hat =F.reshape(ds_hats[i], (1, 1, ds_hats[i].shape[0]))
+                if concat_wxs[z_s] != UNK:
+                    #attentionなし文字ベースdecoder
+                    _, cos = self.char_decoder(ds_hat, ceys)
+                    print("attなし")
+                    concat_cos = F.concat(cos, axis=0)
+                    concat_cos_out=self.W_char(concat_cos)
+                    loss_c1= loss_c1 + F.sum(F.softmax_cross_entropy(
+                        concat_cos_out, concat_cys_out, reduce='no'))
+                else:
+                    #attentionあり文字ベースdecoder
+                    ht = char_hidden[z_s]
+                    h_list, h_bar_list, c_s_list, z_s_list = self.char_att_decoder(ds_hat, ht, ceys)
+                    print("attあり")
+                    concat_cos = F.concat(h_list, axis=0)
+                    concat_cos_out=self.W_char(concat_cos)
+                    loss_c2 = loss_c2 + F.sum(F.softmax_cross_entropy(
+                        concat_cos_out, concat_cys_out, reduce='no'))
+            '''
+            ##案１：だめ
+            isUNK = F.split_axis(concat_pred_w, os_section, 0)
+            for i, s in enumerate(isUNK):
+                isunk = s.data
+                #i: No. of sentence
+                #s: a np.array of boolean
+                if UNK in isunk:
+                    x_zs = F.get_item(z_s_list[i], isunk==UNK)
+                    wy=wys[i]
+                    wy = np.append(wy, EOS)
+                    cy=wy[isunk==UNK]
+                    print("未知語:",cy, x_zs)
+                    for j,x in enumerate(x_zs):
+                        x = F.reshape(x,(1,))
+                        #print(type(x), x.shape, x)
+                        #print(type(c_s_list[i]), c_s_list[i].shape, c_s_list[i])
+                        #c_s_shape = c_s_list[i].shape
+                        #cand_c_s = F.reshape(c_s_list[i], (1, c_s_shape[0], c_s_shape[1]))
+                        #h_bar_shape = h_bar_list[i].shape
+                        #cand_h_bar = F.reshape(h_bar_list[i], (1, h_bar_shape[0], h_bar_shape[1]))
+                        c = F.concat([F.select_item(cand_c_s, x), F.select_item(cand_h_bar, x)], 0)
+                        ds_hat=self.W_hat(F.reshape(c,(1, c.shape[0])))
+                        ds_hat = F.reshape(ds_hat, (1,ds_hat.shape[0], ds_hat.shape[1]))
+                        bow = self.xp.array([BOW], 'i')
+                        print(target_words[cy[j]])
+                        #assert target_words[cy[j]]=='UNK', "There is an UNK in train_target: %r" %str(target_words)
+                        
+                        if cy[j] != UNK:
+                            cys = np.array([[target_char_ids[c] for c in list(target_words[cy[j]])]], np.int32)
+                        else:
+                            cys = np.array([[target_char_ids['UNK']]], np.int32)
+                        cys_in = [F.concat([bow, y], axis=0) for y in cys]
+                        cys_out = [F.concat([y, bow], axis=0) for y in cys]
+                        concat_cys_out = F.concat(cys_out, axis=0)
+                        ceys = sequence_embed(self.embed_yc, cys_in)
+                        if wxs[i][x.data[0]] != 0:
+                            #attentionなし文字ベースdecoder
+                            _, cos = self.char_decoder(ds_hat, ceys)
+                            print("attなし")
+                            concat_cos = F.concat(cos, axis=0)
+                            concat_cos_out=self.W_char(concat_cos)
+                            loss_c1= loss_c1 + F.sum(F.softmax_cross_entropy(
+                                concat_cos_out, concat_cys_out, reduce='no'))
+                        else:
+                            #attentionあり文字ベースdecoder
+                            ht = char_hidden[i][x.data[0]]
+                            h_list, h_bar_list, c_s_list, z_s_list = self.char_att_decoder(ds_hat, ht, ceys)
+                            print("attあり")
+                            concat_cos = F.concat(h_list, axis=0)
+                            concat_cos_out=self.W_char(concat_cos)
+                            loss_c2 = loss_c2 + F.sum(F.softmax_cross_entropy(
+                                concat_cos_out, concat_cys_out, reduce='no'))
+                                '''
+        else:
+            print(False)
+        
+        loss_w = F.sum(F.softmax_cross_entropy(
+            concat_os_out[is_unk!=1], concat_ys_out[is_unk!=1], reduce='no'))
+        
+        loss = F.sum(loss_w + Alpha * loss_c1 + Beta * loss_c2) / batch
 
         reporter.report({'loss': loss.data}, self)
         n_words = concat_ys_out.shape[0]
         perp = self.xp.exp(loss.data * batch / n_words)
         reporter.report({'perp': perp}, self)
+        print("loss",loss)
+        print()
         return loss
 
     def translate(self, xs, max_length=100):
+        print("Now translating")
         batch = len(xs)
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
-            xs_f = xs
-            xs_b = [x[::-1] for x in xs]
-            exs_f = sequence_embed(self.embed_x, xs_f)
-            exs_b = sequence_embed(self.embed_x, xs_b)
+            char_hidden=[]
+            
+            wxs = [x[0] for x in xs]
+            unk_xs = [x[1] for x in xs]
+            unk_pos = [np.where(x==UNK)[0] for x in wxs]
+            concat_wxs = np.concatenate(wxs)
+            
+            exs = sequence_embed(self.embed_x, wxs)
+            exs = list(map(lambda s, t, u: get_unk_hidden_vector(s, t, u, self.embed_xc, self.char_encoder, char_hidden) , exs, unk_pos, unk_xs))
+            
+            exs_f = exs
+            exs_b = [ex[::-1] for ex in exs]
             _, hf = self.encoder_f(None, exs_f)
             _, hb = self.encoder_b(None, exs_b)
             ht = list(map(lambda x,y: F.concat([x, y], axis=1), hf, hb))
             ys = self.xp.full(batch, EOS, 'i')
             result = []
-            for i in range(max_length):
+            h_list = None
+            for a in range(max_length):
                 eys = self.embed_y(ys)
                 eys = chainer.functions.split_axis(eys, batch, 0)
-                h_list, h_bar_list, c_s_list, z_s_list = self.decoder(ht, eys)
-                cys = chainer.functions.concat(h_list, axis=0)
-                wy = self.W(cys)
-                ys = self.xp.argmax(wy.data, axis=1).astype('i')
-                result.append(ys)
+                h_list, h_bar_list, c_s_list, z_s_list = self.decoder(h_list, ht, eys)
+                
+                os = h_list
+                os_len = [len(s) for s in os]
+                os_section = np.cumsum(os_len[:-1])
+                concat_os = F.concat(os, axis=0)
+                concat_os_out = self.W(concat_os)
+                concat_pred_w = F.argmax(concat_os_out, axis=1)
+                is_unk = concat_pred_w.data==UNK
+                
+                if UNK in concat_pred_w.data:
+                    result_c = []
+                    
+                    concat_c_s = F.concat(c_s_list, axis=0)
+                    concat_h_bar = F.concat(h_bar_list, axis=0)
+
+                    c_ss = concat_c_s[is_unk]
+                    h_bars = concat_h_bar[is_unk]
+                    c = F.concat([c_ss, h_bars], axis=1)
+                    ds_hats=F.relu(self.W_hat(c))
+                    
+                    z_s_len = [len(z_s) - 1 for z_s in z_s_list]
+                    z_s_section = np.cumsum(z_s_len[:-1])
+                    valid_z_s_section = np.insert(z_s_section, 0, 0)
+                    abs_z_s_list = [z_s_list[i] + valid_z_s_section[i] for i in range(len(z_s_list))]
+                    concat_z_s = F.concat(abs_z_s_list, axis=0)
+                    z_ss = concat_z_s[is_unk]
+                    print("総z_s数:", np.sum(z_s_len))
+                    print("総元単語数:", len(concat_wxs))
+                    
+                    
+                    
+                    '''
+                    x = z_s_list[0].data[0]
+                    cys = self.xp.full(, BOW, 'i')
+                    ceys = sequence_embed(self.embed_yc, cys)
+                    c = F.concat([c_s_list[0][x], h_bar_list[0][x]], 0)
+                    ds_hat=self.W_hat(F.reshape(c,(1, c.shape[0])))
+                    ds_hat = F.reshape(ds_hat, (1,ds_hat.shape[0], ds_hat.shape[1]))
+                    for b in range(10):
+                        if wxs[i][x] != 0:
+                            #attentionなし文字ベースdecoder
+                            _, cos = self.char_decoder(ds_hat, ceys)
+                            print("attなし")
+                            cys = chainer.functions.concat(cos, axis=0)
+                            cy = self.W_char(cys)
+                            cys = self.xp.argmax(cy.data, axis=1).astype('i')
+                            result_c.append(cys)
+                        else:
+                            #attentionあり文字ベースdecoder
+                            ht = char_hidden[i][x]
+                            h_list, h_bar_list, c_s_list, z_s_list = self.char_att_decoder(ds_hat, ht, ceys)
+                            print("attあり")
+                            cys = chainer.functions.concat(h_list, axis=0)
+                            cy = self.W_char(cys)
+                            cys = self.xp.argmax(cy.data, axis=1).astype('i')
+                            result_c.append(cys)
+                    r = ""
+                    for c in result_c:
+                        if c == BOW:
+                            break
+                        r+=target_chars.get(c, UNK)
+                    ys = target_word_ids.get(r, UNK)
+                    '''
+                result.append(concat_pred_w)
 
         result = cuda.to_cpu(self.xp.stack(result).T)
 
@@ -247,7 +457,7 @@ def load_data(word_voc, char_voc, path):
             array = np.array([word_voc.get(w, UNK) for w in words], 'i')
             unk_words = np.array(words)[array==UNK]
             unk_array = np.array([
-                np.array([char_voc.get(c, UNK) for c in list(w)])
+                np.array([char_voc.get(c, UNK) for c in list(w)], np.int32)
                 for w in unk_words])
             array = np.array([array, unk_array])
             data.append(array)
@@ -261,7 +471,7 @@ def calculate_unknown_ratio(data):
 
 
 def main():
-    global source_words
+    global target_words, target_word_ids, target_chars, target_char_ids
     parser = argparse.ArgumentParser(description='Chainer example: seq2seq')
     parser.add_argument('SOURCE', help='source sentence list')
     parser.add_argument('TARGET', help='target sentence list')
@@ -301,10 +511,12 @@ def main():
 
     source_word_ids = load_vocabulary(args.SOURCE_WORD_VOCAB)
     target_word_ids = load_vocabulary(args.TARGET_WORD_VOCAB)
-    target_words = {i: w for w, i in target_word_ids.items()}
     source_words = {i: w for w, i in source_word_ids.items()}
+    target_words = {i: w for w, i in target_word_ids.items()}
     source_char_ids = load_vocabulary(args.SOURCE_CHAR_VOCAB)
     target_char_ids = load_vocabulary(args.TARGET_CHAR_VOCAB)
+    #source_chars = {i: w for w, i in source_char_ids.items()}
+    target_chars = {i: w for w, i in target_char_ids.items()}
     train_source = load_data(source_word_ids, source_char_ids, args.SOURCE)
     train_target = load_data(target_word_ids, target_char_ids, args.TARGET)
     assert len(train_source) == len(train_target)
