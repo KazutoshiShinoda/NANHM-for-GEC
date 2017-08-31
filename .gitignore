@@ -1,3 +1,5 @@
 .envrc
 *.pyc
 *.txt
+*.model
+model
