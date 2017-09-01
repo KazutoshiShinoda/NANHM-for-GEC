@@ -6,6 +6,8 @@ from nltk.translate import bleu_score
 import numpy as np
 import progressbar
 import six
+import config as cfg
+from datetime import datetime as dt
 
 import chainer
 from chainer import cuda
@@ -15,9 +17,8 @@ from my_chainer.links.connection import n_step_gru as My
 from chainer import reporter
 from chainer import training
 from chainer.training import extensions
+from chainer import serializers
 
-import os
-os.environ["CHAINER_TYPE_CHECK"] = "0"
 
 #word-level
 UNK = 0
@@ -67,17 +68,6 @@ def get_unk_hidden_vector(ex, pos, x, embed, encoder, char_hidden):
                 hidden.append(0)
         char_hidden.extend(hidden)
         return ex
-        '''
-        hidden=[]
-        for i, p in enumerate(pos):
-            cexs = convert_unk(embed, x[i])
-            hx, os = encoder(None, cexs)
-            ##ここが原因かも？？？？！！！！
-            ex[p].data = hx[-1][-1].data
-            hidden[p]=os
-        char_hidden.append(hidden)
-        return ex
-        '''
 
 class Seq2seq(chainer.Chain):
 
@@ -162,8 +152,6 @@ class Seq2seq(chainer.Chain):
             h_bars = concat_h_bar[is_unk]
             c = F.concat([c_ss, h_bars], axis=1)
             ds_hats=F.relu(self.W_hat(c))
-            #ds_hat = F.reshape(ds_hat, (1,ds_hat.shape[0], ds_hat.shape[1]))
-            print("ds_hats:",ds_hats.shape)
             
             z_s_len = [len(z_s) - 1 for z_s in z_s_list]
             z_s_section = np.cumsum(z_s_len[:-1])
@@ -171,8 +159,6 @@ class Seq2seq(chainer.Chain):
             abs_z_s_list = [z_s_list[i] + valid_z_s_section[i] for i in range(len(z_s_list))]
             concat_z_s = F.concat(abs_z_s_list, axis=0)
             z_ss = concat_z_s[is_unk]
-            print("総z_s数:", np.sum(z_s_len))
-            print("総元単語数:", len(concat_wxs))
             
             true_wys = concat_ys_out[is_unk]
             #"予想単語==UNK"の各ケースについて個別に処理
@@ -211,60 +197,6 @@ class Seq2seq(chainer.Chain):
                     concat_cos_out=self.W_char(concat_cos)
                     loss_c2 = loss_c2 + F.sum(F.softmax_cross_entropy(
                         concat_cos_out, concat_cys_out, reduce='no'))
-            '''
-            ##案１：だめ
-            isUNK = F.split_axis(concat_pred_w, os_section, 0)
-            for i, s in enumerate(isUNK):
-                isunk = s.data
-                #i: No. of sentence
-                #s: a np.array of boolean
-                if UNK in isunk:
-                    x_zs = F.get_item(z_s_list[i], isunk==UNK)
-                    wy=wys[i]
-                    wy = np.append(wy, EOS)
-                    cy=wy[isunk==UNK]
-                    print("未知語:",cy, x_zs)
-                    for j,x in enumerate(x_zs):
-                        x = F.reshape(x,(1,))
-                        #print(type(x), x.shape, x)
-                        #print(type(c_s_list[i]), c_s_list[i].shape, c_s_list[i])
-                        #c_s_shape = c_s_list[i].shape
-                        #cand_c_s = F.reshape(c_s_list[i], (1, c_s_shape[0], c_s_shape[1]))
-                        #h_bar_shape = h_bar_list[i].shape
-                        #cand_h_bar = F.reshape(h_bar_list[i], (1, h_bar_shape[0], h_bar_shape[1]))
-                        c = F.concat([F.select_item(cand_c_s, x), F.select_item(cand_h_bar, x)], 0)
-                        ds_hat=self.W_hat(F.reshape(c,(1, c.shape[0])))
-                        ds_hat = F.reshape(ds_hat, (1,ds_hat.shape[0], ds_hat.shape[1]))
-                        bow = self.xp.array([BOW], 'i')
-                        print(target_words[cy[j]])
-                        #assert target_words[cy[j]]=='UNK', "There is an UNK in train_target: %r" %str(target_words)
-                        
-                        if cy[j] != UNK:
-                            cys = np.array([[target_char_ids[c] for c in list(target_words[cy[j]])]], np.int32)
-                        else:
-                            cys = np.array([[target_char_ids['UNK']]], np.int32)
-                        cys_in = [F.concat([bow, y], axis=0) for y in cys]
-                        cys_out = [F.concat([y, bow], axis=0) for y in cys]
-                        concat_cys_out = F.concat(cys_out, axis=0)
-                        ceys = sequence_embed(self.embed_yc, cys_in)
-                        if wxs[i][x.data[0]] != 0:
-                            #attentionなし文字ベースdecoder
-                            _, cos = self.char_decoder(ds_hat, ceys)
-                            print("attなし")
-                            concat_cos = F.concat(cos, axis=0)
-                            concat_cos_out=self.W_char(concat_cos)
-                            loss_c1= loss_c1 + F.sum(F.softmax_cross_entropy(
-                                concat_cos_out, concat_cys_out, reduce='no'))
-                        else:
-                            #attentionあり文字ベースdecoder
-                            ht = char_hidden[i][x.data[0]]
-                            h_list, h_bar_list, c_s_list, z_s_list = self.char_att_decoder(ds_hat, ht, ceys)
-                            print("attあり")
-                            concat_cos = F.concat(h_list, axis=0)
-                            concat_cos_out=self.W_char(concat_cos)
-                            loss_c2 = loss_c2 + F.sum(F.softmax_cross_entropy(
-                                concat_cos_out, concat_cys_out, reduce='no'))
-                                '''
         else:
             print(False)
         
@@ -284,12 +216,16 @@ class Seq2seq(chainer.Chain):
     def translate(self, xs, max_length=100):
         print("Now translating")
         batch = len(xs)
+        print("batch",batch)
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
             char_hidden=[]
             
             wxs = [x[0] for x in xs]
             unk_xs = [x[1] for x in xs]
             unk_pos = [np.where(x==UNK)[0] for x in wxs]
+            wx_len = [len(wx) for wx in wxs]
+            wx_section = np.cumsum(wx_len[:-1])
+            valid_wx_section = np.insert(wx_section, 0, 0)
             concat_wxs = np.concatenate(wxs)
             
             exs = sequence_embed(self.embed_x, wxs)
@@ -305,19 +241,23 @@ class Seq2seq(chainer.Chain):
             h_list = None
             for a in range(max_length):
                 eys = self.embed_y(ys)
-                eys = chainer.functions.split_axis(eys, batch, 0)
-                h_list, h_bar_list, c_s_list, z_s_list = self.decoder(h_list, ht, eys)
+                eys = F.split_axis(eys, batch, 0)
+                if h_list==None:
+                    h0 = h_list
+                else:
+                    h0 = F.transpose_sequence(h_list)[-1]
+                    h0 = F.reshape(h0, (self.n_layers, h0.shape[0], h0.shape[1]))
+                #h0 : {type:variable, shape:(n_layers*batch*dimentionality)} or None
+                h_list, h_bar_list, c_s_list, z_s_list = self.decoder(h0, ht, eys)
                 
                 os = h_list
-                os_len = [len(s) for s in os]
-                os_section = np.cumsum(os_len[:-1])
                 concat_os = F.concat(os, axis=0)
                 concat_os_out = self.W(concat_os)
-                concat_pred_w = F.argmax(concat_os_out, axis=1)
-                is_unk = concat_pred_w.data==UNK
+                concat_pred_w = self.xp.argmax(concat_os_out.data, axis=1).astype('i')
+                is_unk = concat_pred_w==UNK
                 
-                if UNK in concat_pred_w.data:
-                    result_c = []
+                if UNK in concat_pred_w:
+                    N = np.sum(is_unk)
                     
                     concat_c_s = F.concat(c_s_list, axis=0)
                     concat_h_bar = F.concat(h_bar_list, axis=0)
@@ -327,51 +267,56 @@ class Seq2seq(chainer.Chain):
                     c = F.concat([c_ss, h_bars], axis=1)
                     ds_hats=F.relu(self.W_hat(c))
                     
-                    z_s_len = [len(z_s) - 1 for z_s in z_s_list]
-                    z_s_section = np.cumsum(z_s_len[:-1])
-                    valid_z_s_section = np.insert(z_s_section, 0, 0)
-                    abs_z_s_list = [z_s_list[i] + valid_z_s_section[i] for i in range(len(z_s_list))]
+                    abs_z_s_list = [z_s_list[i] + valid_wx_section[i] for i in range(len(z_s_list))]
                     concat_z_s = F.concat(abs_z_s_list, axis=0)
                     z_ss = concat_z_s[is_unk]
-                    print("総z_s数:", np.sum(z_s_len))
-                    print("総元単語数:", len(concat_wxs))
                     
-                    
-                    
-                    '''
-                    x = z_s_list[0].data[0]
-                    cys = self.xp.full(, BOW, 'i')
-                    ceys = sequence_embed(self.embed_yc, cys)
-                    c = F.concat([c_s_list[0][x], h_bar_list[0][x]], 0)
-                    ds_hat=self.W_hat(F.reshape(c,(1, c.shape[0])))
-                    ds_hat = F.reshape(ds_hat, (1,ds_hat.shape[0], ds_hat.shape[1]))
-                    for b in range(10):
-                        if wxs[i][x] != 0:
-                            #attentionなし文字ベースdecoder
-                            _, cos = self.char_decoder(ds_hat, ceys)
-                            print("attなし")
-                            cys = chainer.functions.concat(cos, axis=0)
-                            cy = self.W_char(cys)
-                            cys = self.xp.argmax(cy.data, axis=1).astype('i')
-                            result_c.append(cys)
+                    #各UNK単語について
+                    results_c = []
+                    for i in range(N):
+                        result_c = []
+                        cy = self.xp.full(1, BOW, 'i')
+                        cy = F.split_axis(cy, 1, 0)
+                        cey = sequence_embed(self.embed_yc, cy)
+                        z_s = int(z_ss[i].data)
+                        ds_hat = F.reshape(ds_hats[i], (1, 1, ds_hats[i].shape[0]))
+                        
+                        if concat_wxs[z_s] != UNK:
+                            for b in range(10):
+                                #attentionなし文字ベースdecoder
+                                ds_hat, cos = self.char_decoder(ds_hat, cey)
+                                cos_out = self.W_char(cos[0])
+                                pred_cos = self.xp.argmax(cos_out.data, axis=1).astype('i')
+                                cey = self.embed_yc(pred_cos)
+                                print(pred_cos)
+                                print(target_chars[pred_cos])
+                                result_c.append(pred_cos)
                         else:
-                            #attentionあり文字ベースdecoder
-                            ht = char_hidden[i][x]
-                            h_list, h_bar_list, c_s_list, z_s_list = self.char_att_decoder(ds_hat, ht, ceys)
-                            print("attあり")
-                            cys = chainer.functions.concat(h_list, axis=0)
-                            cy = self.W_char(cys)
-                            cys = self.xp.argmax(cy.data, axis=1).astype('i')
-                            result_c.append(cys)
-                    r = ""
-                    for c in result_c:
-                        if c == BOW:
-                            break
-                        r+=target_chars.get(c, UNK)
-                    ys = target_word_ids.get(r, UNK)
-                    '''
+                            c_ht = char_hidden[z_s]
+                            for b in range(10):
+                                #attentionあり文字ベースdecoder
+                                if b==0:
+                                    c_h0 = ds_hat
+                                else:
+                                    c_h0 = F.transpose_sequence(h_list)[-1]
+                                    c_h0 = F.reshape(c_h0, (self.n_layers, c_h0.shape[0], c_h0.shape[1]))
+                                c_h_list, c_h_bar_list, c_c_s_list, c_z_s_list = self.char_att_decoder(c_h0, c_ht, cey)
+                                cos_out = self.W_char(h_list[-1])
+                                pred_cos = self.xp.argmax(cos_out.data, axis=1).astype('i')
+                                cey = self.embed_yc(pred_cos)
+                                print(pred_cos)
+                                print(target_chars[pred_cos])
+                                result_c.append(pred_cos)
+                        r = ""
+                        for c in result_c:
+                            if c == BOW:
+                                break
+                            r+=target_chars.get(c, UNK)
+                        print(r)
+                        pred_w = target_word_ids.get(r, UNK)
+                        results_c.append(pred_w)
+                    concat_pred_w[is_unk] = results_c
                 result.append(concat_pred_w)
-
         result = cuda.to_cpu(self.xp.stack(result).T)
 
         # Remove EOS taggs
@@ -422,7 +367,7 @@ class CalculateBleu(chainer.training.Extension):
             hypotheses = []
             for i in range(0, len(self.test_data), self.batch):
                 sources, targets = zip(*self.test_data[i:i + self.batch])
-                references.extend([[t.tolist()] for t in targets])
+                references.extend([[t[0].tolist()] for t in targets])
 
                 sources = [
                     chainer.dataset.to_device(self.device, x) for x in sources]
@@ -472,6 +417,9 @@ def calculate_unknown_ratio(data):
 
 def main():
     global target_words, target_word_ids, target_chars, target_char_ids
+    todaydetail = dt.today()
+    todaydetailf = todaydetail.strftime("%Y%m%d-%H:%M:%S")
+    print('start at ' + todaydetailf)
     parser = argparse.ArgumentParser(description='Chainer example: seq2seq')
     parser.add_argument('SOURCE', help='source sentence list')
     parser.add_argument('TARGET', help='target sentence list')
@@ -551,8 +499,8 @@ def main():
     updater = training.StandardUpdater(
         train_iter, optimizer, converter=convert, device=args.gpu)
     trainer = training.Trainer(updater, (args.epoch, 'epoch'))
-    trainer.extend(extensions.LogReport(trigger=(200, 'iteration')),
-                   trigger=(200, 'iteration'))
+    trainer.extend(extensions.LogReport(trigger=(args.trigger, 'iteration'), log_name='Log-'+todaydetailf+'.txt'),
+                   trigger=(args.trigger, 'iteration'))
     trainer.extend(extensions.PrintReport(
         ['epoch', 'iteration', 'main/loss', 'validation/main/loss',
          'main/perp', 'validation/main/perp', 'validation/main/bleu',
@@ -581,8 +529,8 @@ def main():
             source, target = test_data[np.random.choice(len(test_data))]
             result = model.translate([model.xp.array(source)])[0]
 
-            source_sentence = ' '.join([source_words[x] for x in source])
-            target_sentence = ' '.join([target_words[y] for y in target])
+            source_sentence = ' '.join([source_words[x] for x in source[0]])
+            target_sentence = ' '.join([target_words[y] for y in target[0]])
             result_sentence = ' '.join([target_words[y] for y in result])
             print('# source : ' + source_sentence)
             print('#  result : ' + result_sentence)
@@ -596,6 +544,13 @@ def main():
 
     print('start training')
     trainer.run()
+    print('=>finished!')
+    model_name = todaydetailf+'-Hybrid-BiGRU.model'
+    serializers.save_npz(cfg.PATH_TO_MODELS + model_name, model)
+    print('=>save the model: '+model_name)
+    enddetail = dt.today()
+    enddetailf = enddetail.strftime("%Y%m%d-%H:%M:%S")
+    print('end at ' + enddetailf)
 
 
 if __name__ == '__main__':

@@ -30,3 +30,7 @@ PATH_TO_Y_TRAIN = _CUR_DIR + '/data/train/y_train.txt'
 PATH_TO_X_TEST = _CUR_DIR + '/data/test/X_test.txt'
 
 PATH_TO_Y_TEST = _CUR_DIR + '/data/test/y_test.txt'
+
+# 学習済みモデル
+
+PATH_TO_MODELS = _CUR_DIR + '/model/'

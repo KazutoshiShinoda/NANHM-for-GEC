@@ -141,7 +141,7 @@ class NStepGRUBase(link.ChainList):
         if h0 is None:
             h0 = self.init_hx(xs)
         else:
-            h0 = permutate_list(h0, indices, axis=1, inv=False)
+            h0 = permutate.permutate(h0, indices, axis=1, inv=False)
         
         hx = permutate_list(hx, indices, inv=False)
         
