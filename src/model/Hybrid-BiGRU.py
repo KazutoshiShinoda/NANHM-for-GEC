@@ -516,7 +516,7 @@ def main():
         ['epoch', 'iteration', 'main/loss', 'validation/main/loss',
          'main/perp', 'validation/main/perp', 'validation/main/bleu',
          'elapsed_time']),
-        trigger=(200, 'iteration'))
+        trigger=(args.trigger, 'iteration'))
 
     if args.validation_source and args.validation_target:
         test_source = load_data(source_word_ids, source_char_ids, args.validation_source)
@@ -535,7 +535,7 @@ def main():
         #print('Validation target unknown ratio: %.2f%%' %
         #      (test_target_unknown * 100))
 
-        @chainer.training.make_extension(trigger=(200, 'iteration'))
+        @chainer.training.make_extension(trigger=(args.trigger, 'iteration'))
         def translate(trainer):
             source, target = test_data[np.random.choice(len(test_data))]
             result = model.translate([model.xp.array(source)])[0]
