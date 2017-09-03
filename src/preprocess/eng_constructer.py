@@ -1,5 +1,4 @@
 import argparse
-import MeCab
 from gensim.corpora.dictionary import Dictionary
 import config as cfg
 import re
@@ -45,8 +44,6 @@ def main():
     for ng in char_rm_list:
         if ng in char_dic:
             char_dic.remove(ng)
-        if ng in char_dic2:
-            char_dic2.remove(ng)
     
     f = open(cfg.PATH_TO_ENG_SOURCE_WORD_VOCAB, 'w')
     f.write("\n".join(word_dic))
