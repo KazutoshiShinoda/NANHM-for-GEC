@@ -405,6 +405,8 @@ def load_data(word_voc, char_voc, path):
                 np.array([char_voc.get(c, UNK) for c in list(w)], np.int32)
                 for w in unk_words])
             array = np.array([array, unk_array])
+            if len(unk_array)!=0:
+                print(array)
             data.append(array)
     return data
 
