@@ -26,10 +26,10 @@ PATH_TO_Y_TEST = _CUR_DIR + '/data/test/y_test.txt'
 
 # 英語データ
 
-PATH_TO_ENG_X_TRAIN = _CUR_DIR + '/data/AESW/aesw_X_train.txt'
-PATH_TO_ENG_Y_TRAIN = _CUR_DIR + '/data/AESW/aesw_y_train.txt'
-PATH_TO_ENG_X_TEST = _CUR_DIR + '/data/AESW/aesw_X_test.txt'
-PATH_TO_ENG_Y_TEST = _CUR_DIR + '/data/AESW/aesw_y_test.txt'
+PATH_TO_ENG_X_TRAIN = _CUR_DIR + '/data/AESW/AESW_X_train.txt'
+PATH_TO_ENG_Y_TRAIN = _CUR_DIR + '/data/AESW/AESW_y_train.txt'
+PATH_TO_ENG_X_TEST = _CUR_DIR + '/data/AESW/AESW_X_test.txt'
+PATH_TO_ENG_Y_TEST = _CUR_DIR + '/data/AESW/AESW_y_test.txt'
 
 PATH_TO_ENG_SOURCE_WORD_VOCAB = _CUR_DIR + '/data/vocab/eng_source_word_vocab.txt'
 PATH_TO_ENG_TARGET_WORD_VOCAB = _CUR_DIR + '/data/vocab/eng_target_word_vocab.txt'
