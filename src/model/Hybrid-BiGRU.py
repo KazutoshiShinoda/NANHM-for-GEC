@@ -481,9 +481,9 @@ def main():
     assert len(train_source) == len(train_target)
     train_data = [(s, t)
                   for s, t in six.moves.zip(train_source, train_target)
-                  if args.min_source_sentence <= len(s[0])
+                  if args.min_source_sentence <= len(s)
                   <= args.max_source_sentence and
-                  args.min_source_sentence <= len(t[0])
+                  args.min_source_sentence <= len(t)
                   <= args.max_source_sentence]
     #train_source_unknown = calculate_unknown_ratio(
     #    [s for s, _ in train_data])
@@ -540,8 +540,8 @@ def main():
             source, target = test_data[np.random.choice(len(test_data))]
             result = model.translate([model.xp.array(source)])[0]
 
-            source_sentence = ' '.join([source_words[x] for x in source[0]])
-            target_sentence = ' '.join([target_words[y] for y in target[0]])
+            source_sentence = ' '.join([source_words[x] for x in source])
+            target_sentence = ' '.join([target_words[y] for y in target])
             result_sentence = ' '.join([target_words[y] for y in result])
             print('# source : ' + source_sentence)
             print('#  result : ' + result_sentence)
