@@ -98,7 +98,6 @@ class Seq2seq(chainer.Chain):
         wxs = [x[0] for x in xs]
         unk_xs = [x[1] for x in xs]
         '''
-        print(source_word_ids)
         wxs = [np.array([source_word_ids.get(w, UNK) for w in x], dtype=np.int32) for x in xs]
         unk_words = list(map(lambda x,y: np.array(y)[x==UNK] , wxs, xs))
         unk_xs = list(map(lambda x: np.array([
