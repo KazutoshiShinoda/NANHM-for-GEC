@@ -36,6 +36,8 @@ target_words = {}
 target_word_ids = {}
 target_chars = {}
 target_char_ids = {}
+source_word_ids = {}
+source_char_ids = {}
 
 char_hidden = []
 
@@ -92,18 +94,23 @@ class Seq2seq(chainer.Chain):
         
     def __call__(self, xs, ys):
         char_hidden=[]
-        
+        '''
         wxs = [x[0] for x in xs]
         unk_xs = [x[1] for x in xs]
+        '''
+        wxs = [np.array([source_word_ids.get(w, UNK) for w in x], dtype=np.int32) for x in xs]
+        unk_words = list(map(lambda x,y: np.array(y)[x==UNK] , wxs, xs))
+        unk_xs = list(map(lambda x: np.array([
+            np.array([source_char_ids.get(c, UNK) for c in list(w)], dtype=np.int32)
+            for w in x]), unk_words))
         unk_pos = [np.where(x==UNK)[0] for x in wxs]
         concat_wxs = np.concatenate(wxs)
         
-        wys = [y[0] for y in ys]
-        unk_ys = [y[1] for y in ys]
+        wys = [np.array([target_word_ids.get(w, UNK) for w in y], dtype=np.int32) for y in ys]
         
         eos = self.xp.array([EOS], 'i')
-        ys_in = [F.concat([eos, y[0]], axis=0) for y in ys]
-        ys_out = [F.concat([y[0], eos], axis=0) for y in ys]
+        ys_in = [F.concat([eos, y], axis=0) for y in wys]
+        ys_out = [F.concat([y, eos], axis=0) for y in wys]
 
         # Both xs and ys_in are lists of arrays.
         exs = sequence_embed(self.embed_x, wxs)
@@ -399,6 +406,7 @@ def load_data(word_voc, char_voc, path):
     with open(path) as f:
         for line in bar(f, max_value=n_lines):
             words = line.strip().split()
+            '''
             array = np.array([word_voc.get(w, UNK) for w in words], dtype=np.int32)
             unk_words = np.array(words)[array==UNK]
             unk_array = np.array([
@@ -407,7 +415,8 @@ def load_data(word_voc, char_voc, path):
             array = np.array([array, unk_array])
             if len(unk_array)!=0:
                 print(array)
-            data.append(array)
+            '''
+            data.append(np.array(words))
     return data
 
 
@@ -418,7 +427,7 @@ def calculate_unknown_ratio(data):
 
 
 def main():
-    global target_words, target_word_ids, target_chars, target_char_ids
+    global target_words, target_word_ids, target_chars, target_char_ids,source_word_ids,source_char_ids
     todaydetail = dt.today()
     todaydetailf = todaydetail.strftime("%Y%m%d-%H:%M:%S")
     print('start at ' + todaydetailf)
@@ -476,18 +485,18 @@ def main():
                   <= args.max_source_sentence and
                   args.min_source_sentence <= len(t[0])
                   <= args.max_source_sentence]
-    train_source_unknown = calculate_unknown_ratio(
-        [s for s, _ in train_data])
-    train_target_unknown = calculate_unknown_ratio(
-        [t for _, t in train_data])
+    #train_source_unknown = calculate_unknown_ratio(
+    #    [s for s, _ in train_data])
+    #train_target_unknown = calculate_unknown_ratio(
+    #    [t for _, t in train_data])
 
     print('Source word vocabulary size: %d' % len(source_word_ids))
     print('Target word vocabulary size: %d' % len(target_word_ids))
     print('Source char vocabulary size: %d' % len(source_char_ids))
     print('Target char vocabulary size: %d' % len(target_char_ids))
     print('Train data size: %d' % len(train_data))
-    print('Train source unknown ratio: %.2f%%' % (train_source_unknown * 100))
-    print('Train target unknown ratio: %.2f%%' % (train_target_unknown * 100))
+    #print('Train source unknown ratio: %.2f%%' % (train_source_unknown * 100))
+    #print('Train target unknown ratio: %.2f%%' % (train_target_unknown * 100))
 
     model = Seq2seq(args.layer, len(source_word_ids), len(target_word_ids), len(source_char_ids), len(target_char_ids), args.unit)
     if args.gpu >= 0:
@@ -515,16 +524,16 @@ def main():
         assert len(test_source) == len(test_target)
         test_data = list(six.moves.zip(test_source, test_target))
         test_data = [(s, t) for s, t in test_data if 0 < len(s) and 0 < len(t)]
-        test_source_unknown = calculate_unknown_ratio(
-            [s for s, _ in test_data])
-        test_target_unknown = calculate_unknown_ratio(
-            [t for _, t in test_data])
+        #test_source_unknown = calculate_unknown_ratio(
+        #    [s for s, _ in test_data])
+        #test_target_unknown = calculate_unknown_ratio(
+        #    [t for _, t in test_data])
 
         print('Validation data: %d' % len(test_data))
-        print('Validation source unknown ratio: %.2f%%' %
-              (test_source_unknown * 100))
-        print('Validation target unknown ratio: %.2f%%' %
-              (test_target_unknown * 100))
+        #print('Validation source unknown ratio: %.2f%%' %
+        #      (test_source_unknown * 100))
+        #print('Validation target unknown ratio: %.2f%%' %
+        #      (test_target_unknown * 100))
 
         @chainer.training.make_extension(trigger=(200, 'iteration'))
         def translate(trainer):
