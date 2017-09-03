@@ -400,7 +400,7 @@ def load_data(word_voc, char_voc, path):
         for line in bar(f, max_value=n_lines):
             words = line.strip().split()
             array = np.array([word_voc.get(w, UNK) for w in words], 'i')
-            unk_words = np.array(words)[array[0]==UNK]
+            unk_words = np.array(words)[array==UNK]
             unk_array = np.array([
                 np.array([char_voc.get(c, UNK) for c in list(w)], np.int32)
                 for w in unk_words])
