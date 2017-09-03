@@ -403,7 +403,7 @@ def load_data(word_voc, char_voc, path):
             unk_words = np.array(words)[array==UNK]
             unk_array = np.array([
                 np.array([char_voc.get(c, UNK) for c in list(w)], np.int32)
-                for w in unk_words])
+                for w in unk_words], dtype=object)
             array = np.array([array, unk_array])
             data.append(array)
     return data
