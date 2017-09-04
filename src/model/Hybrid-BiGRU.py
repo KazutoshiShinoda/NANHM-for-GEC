@@ -543,8 +543,8 @@ def main():
             source, target = test_data[np.random.choice(len(test_data))]
             result = model.translate([model.xp.array(source)])[0]
 
-            source_sentence = ' '.join([source_words[x] for x in source])
-            target_sentence = ' '.join([target_words[y] for y in target])
+            source_sentence = ' '.join([x for x in source])
+            target_sentence = ' '.join([y for y in target])
             result_sentence = ' '.join([target_words[y] for y in result])
             print('# source : ' + source_sentence)
             print('#  result : ' + result_sentence)
