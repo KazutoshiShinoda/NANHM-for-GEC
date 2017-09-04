@@ -227,8 +227,11 @@ class Seq2seq(chainer.Chain):
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
             char_hidden=[]
             
-            wxs = [x[0] for x in xs]
-            unk_xs = [x[1] for x in xs]
+            wxs = [np.array([source_word_ids.get(w, UNK) for w in x], dtype=np.int32) for x in xs]
+            unk_words = list(map(lambda x,y: np.array(y)[x==UNK] , wxs, xs))
+            unk_xs = list(map(lambda x: np.array([
+                np.array([source_char_ids.get(c, UNK) for c in list(w)], dtype=np.int32)
+                for w in x]), unk_words))
             unk_pos = [np.where(x==UNK)[0] for x in wxs]
             wx_len = [len(wx) for wx in wxs]
             wx_section = np.cumsum(wx_len[:-1])
