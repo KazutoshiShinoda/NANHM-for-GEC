@@ -2,6 +2,5 @@
 *.pyc
 *.txt
 *.model
-model
 convert.py
 *~
