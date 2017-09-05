@@ -431,7 +431,8 @@ class CalculateBleu(chainer.training.Extension):
                 ys = self.model.translate(sources, self.max_length)
                 ys = [y.tolist() for y in ys]
                 hypotheses.extend(ys)
-            source, target = zip(self.test_data)
+            
+            source, target = zip(*self.test_data[0:200])
             loss, n_words = self.model.CalculateValLoss(source, target)
         loss = loss / n_words
         print("val_loss",loss)
