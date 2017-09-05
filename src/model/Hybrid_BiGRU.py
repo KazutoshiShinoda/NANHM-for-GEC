@@ -91,6 +91,7 @@ class Seq2seq(chainer.Chain):
         )
         self.n_layers = n_layers
         self.n_units = n_units
+        self.n_params = 6
         
     def __call__(self, xs, ys):
         char_hidden=[]
@@ -337,7 +338,9 @@ class Seq2seq(chainer.Chain):
                 y = y[:inds[0, 0]]
             outs.append(y)
         return outs
-
+    
+    def get_n_params(self):
+        return self.n_params
 
 def convert(batch, device):
     def to_device_batch(batch):
@@ -432,7 +435,7 @@ def calculate_unknown_ratio(data):
 def main():
     global target_words, target_word_ids, target_chars, target_char_ids,source_word_ids,source_char_ids
     todaydetail = dt.today()
-    todaydetailf = todaydetail.strftime("%Y%m%d-%H:%M:%S")
+    todaydetailf = todaydetail.strftime("%Y%m%d-%H%M%S")
     print('start at ' + todaydetailf)
     parser = argparse.ArgumentParser(description='Chainer example: seq2seq')
     parser.add_argument('SOURCE', help='source sentence list')
@@ -559,9 +562,19 @@ def main():
     print('start training')
     trainer.run()
     print('=>finished!')
+    
     model_name = todaydetailf+'-Hybrid-BiGRU.model'
     serializers.save_npz(cfg.PATH_TO_MODELS + model_name, model)
     print('=>save the model: '+model_name)
+    
+    config_name = todaydetailf+'-Hybrid-BiGRU-config.txt'
+    f = open(cfg.PATH_TO_MODELS + config_name, 'w')
+    model_params = [str(args.layer), str(len(source_word_ids)), str(len(target_word_ids)), str(len(source_char_ids)), str(len(target_char_ids)), str(args.unit)]
+    assert len(model_params)==model.get_n_params()
+    f.write("\n".join(model_params))
+    f.close()
+    print('=>save the config: '+config_name)
+    
     enddetail = dt.today()
     enddetailf = enddetail.strftime("%Y%m%d-%H:%M:%S")
     print('end at ' + enddetailf)
