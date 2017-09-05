@@ -112,7 +112,6 @@ class Seq2seq(chainer.Chain):
         eos = self.xp.array([EOS], 'i')
         ys_in = [F.concat([eos, y], axis=0) for y in wys]
         ys_out = [F.concat([y, eos], axis=0) for y in wys]
-        n_words = len(ys_out)
 
         # Both xs and ys_in are lists of arrays.
         exs = sequence_embed(self.embed_x, wxs)
@@ -211,11 +210,9 @@ class Seq2seq(chainer.Chain):
         
         loss_w = F.sum(F.softmax_cross_entropy(
             concat_os_out[is_unk!=1], concat_ys_out[is_unk!=1], reduce='no'))
-        
-        loss = F.sum(loss_w + Alpha * loss_c1 + Beta * loss_c2) / n_words
-
-        reporter.report({'loss': loss.data}, self)
         n_words = concat_ys_out.shape[0]
+        loss = F.sum(loss_w + Alpha * loss_c1 + Beta * loss_c2) / n_words
+        reporter.report({'loss': loss.data}, self)
         perp = self.xp.exp(loss.data * batch / n_words)
         reporter.report({'perp': perp}, self)
         print("loss",loss)
@@ -380,8 +377,7 @@ class Seq2seq(chainer.Chain):
     def CalculateValLoss(self, xs, ys):
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
             loss = self(xs, ys).data
-            n_words = np.sum([len(y) + 1 for y in ys])
-        return loss, n_words
+        return loss
     
     def get_n_params(self):
         return self.n_params
@@ -432,10 +428,8 @@ class CalculateBleu(chainer.training.Extension):
                 ys = [y.tolist() for y in ys]
                 hypotheses.extend(ys)
             
-            source, target = zip(*self.test_data[0:200])
-            loss, n_words = self.model.CalculateValLoss(source, target)
-        loss = loss / n_words
-        print("val_loss",loss)
+            source, target = zip(*self.test_data[0:100])
+            loss = self.model.CalculateValLoss(source, target)
         bleu = bleu_score.corpus_bleu(
             references, hypotheses,
             smoothing_function=bleu_score.SmoothingFunction().method1)
