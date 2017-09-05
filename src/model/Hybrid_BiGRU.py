@@ -94,6 +94,15 @@ class Seq2seq(chainer.Chain):
         self.n_params = 6
         
     def __call__(self, xs, ys):
+        loss = CalcLoss(self, xs, ys)
+        reporter.report({'loss': loss.data}, self)
+        perp = self.xp.exp(loss.data)
+        reporter.report({'perp': perp}, self)
+        print("loss",loss)
+        print()
+        return loss
+        
+    def CalcLoss(self, xs, ys):
         char_hidden=[]
         '''
         wxs = [x[0] for x in xs]
@@ -212,11 +221,6 @@ class Seq2seq(chainer.Chain):
             concat_os_out[is_unk!=1], concat_ys_out[is_unk!=1], reduce='no'))
         n_words = concat_ys_out.shape[0]
         loss = F.sum(loss_w + Alpha * loss_c1 + Beta * loss_c2) / n_words
-        reporter.report({'loss': loss.data}, self)
-        perp = self.xp.exp(loss.data * batch / n_words)
-        reporter.report({'perp': perp}, self)
-        print("loss",loss)
-        print()
         return loss
 
     def translate(self, xs, max_length=100):
@@ -376,7 +380,7 @@ class Seq2seq(chainer.Chain):
     
     def CalculateValLoss(self, xs, ys):
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
-            loss = self(xs, ys).data
+            loss = self.CalcLoss(xs, ys).data
         return loss
     
     def get_n_params(self):
