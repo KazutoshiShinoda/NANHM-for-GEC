@@ -422,7 +422,7 @@ class CalculateBleu(chainer.training.Extension):
         with chainer.no_backprop_mode():
             references = []
             hypotheses = []
-            for i in range(0, len(self.test_data), self.batch):
+            for i in range(0, len(self.test_data[0:100]), self.batch):
                 sources, targets = zip(*self.test_data[i:i + self.batch])
                 references.extend([[t[0].tolist()] for t in targets])
 
