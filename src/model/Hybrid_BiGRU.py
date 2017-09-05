@@ -422,8 +422,6 @@ class CalculateBleu(chainer.training.Extension):
         with chainer.no_backprop_mode():
             references = []
             hypotheses = []
-            sum_loss=0
-            sum_n_words=0
             for i in range(0, len(self.test_data), self.batch):
                 sources, targets = zip(*self.test_data[i:i + self.batch])
                 references.extend([[t[0].tolist()] for t in targets])
@@ -431,14 +429,12 @@ class CalculateBleu(chainer.training.Extension):
                 sources = [
                     chainer.dataset.to_device(self.device, x) for x in sources]
                 ys = self.model.translate(sources, self.max_length)
-                loss, n_words = self.model.CalculateValLoss(sources, targets)
-                sum_loss += loss * n_words
-                sum_n_words += n_words
                 ys = [y.tolist() for y in ys]
                 hypotheses.extend(ys)
-        loss = sum_loss / sum_n_words
-        if type(loss) != int or type(loss) != float:
-            loss = loss.data
+            source, target = zip(self.test_data)
+            loss, n_words = self.model.CalculateValLoss(source, target)
+        loss = loss / n_words
+        print("val_loss",loss)
         bleu = bleu_score.corpus_bleu(
             references, hypotheses,
             smoothing_function=bleu_score.SmoothingFunction().method1)
