@@ -94,10 +94,13 @@ class Seq2seq(chainer.Chain):
         self.n_params = 6
         
     def __call__(self, xs, ys):
-        loss = self.CalcLoss(xs, ys)
+        loss, n_w, n_c, n_c_a = self.CalcLoss(xs, ys)
         reporter.report({'loss': loss.data}, self)
         perp = self.xp.exp(loss.data)
         reporter.report({'perp': perp}, self)
+        reporter.report({'words':n_w}, self)
+        reporter.report({'chars':n_c}, self)
+        reporter.report({'chars_att':n_c_a}, self)
         print("loss",loss)
         print()
         return loss
@@ -157,6 +160,7 @@ class Seq2seq(chainer.Chain):
         #concat_isUNK = concat_pred_w==0
         
         is_unk = concat_pred_w.data==UNK
+        count_unk_with_no_att = 0
         if UNK in concat_pred_w.data:
             print(True)
             ##案２：
@@ -205,6 +209,7 @@ class Seq2seq(chainer.Chain):
                     concat_cos_out=self.W_char(concat_cos)
                     loss_c1= loss_c1 + F.sum(F.softmax_cross_entropy(
                         concat_cos_out, concat_cys_out, reduce='no'))
+                    count_unk_with_no_att += 1
                 else:
                     #attentionあり文字ベースdecoder
                     ht = char_hidden[z_s]
@@ -216,12 +221,14 @@ class Seq2seq(chainer.Chain):
                         concat_cos_out, concat_cys_out, reduce='no'))
         else:
             print(False)
-        
+        n_words = concat_ys_out.shape[0]
+        n_unk = np.sum(is_unk)
+        count_unk_with_att = n_unk - count_unk_with_no_att
+        count_kno = n_words - n_unk
         loss_w = F.sum(F.softmax_cross_entropy(
             concat_os_out[is_unk!=1], concat_ys_out[is_unk!=1], reduce='no'))
-        n_words = concat_ys_out.shape[0]
         loss = F.sum(loss_w + Alpha * loss_c1 + Beta * loss_c2) / n_words
-        return loss
+        return loss, count_kno, count_unk_with_no_att, count_unk_with_att
 
     def translate(self, xs, max_length=100):
         print("Now translating")
@@ -380,7 +387,7 @@ class Seq2seq(chainer.Chain):
     
     def CalculateValLoss(self, xs, ys):
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
-            loss = self.CalcLoss(xs, ys).data
+            loss, n_w, n_c, n_c_a = self.CalcLoss(xs, ys).data
         return loss
     
     def get_n_params(self):
@@ -566,7 +573,8 @@ def main():
     trainer.extend(extensions.LogReport(trigger=(args.trigger, 'iteration'), log_name='Log-'+todaydetailf+'.txt'),
                    trigger=(args.trigger, 'iteration'))
     trainer.extend(extensions.PrintReport(
-        ['epoch', 'iteration', 'main/loss', 'validation/main/loss',
+        ['epoch', 'iteration', 'main/words', 'main/chars', 'main/chars_att',
+         'main/loss', 'validation/main/loss',
          'main/perp', 'validation/main/perp', 'validation/main/bleu',
          'elapsed_time']),
         trigger=(args.trigger, 'iteration'))
