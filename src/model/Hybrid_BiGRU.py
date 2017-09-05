@@ -505,6 +505,7 @@ def main():
     #print('Train target unknown ratio: %.2f%%' % (train_target_unknown * 100))
 
     model = Seq2seq(args.layer, len(source_word_ids), len(target_word_ids), len(source_char_ids), len(target_char_ids), args.unit)
+    print("params:", args.layer, len(source_word_ids), len(target_word_ids), len(source_char_ids), len(target_char_ids), args.unit)
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()
         model.to_gpu(args.gpu)
