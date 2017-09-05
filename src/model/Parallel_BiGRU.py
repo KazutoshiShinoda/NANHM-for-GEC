@@ -13,7 +13,7 @@ import chainer
 from chainer import cuda
 import chainer.functions as F
 import chainer.links as L
-from my_chainer.links.connection import n_step_gru as My
+from my_chainer.links as My
 from chainer import reporter
 from chainer import training
 from chainer.training import extensions
@@ -75,16 +75,14 @@ class Seq2seq(chainer.Chain):
 
     def __init__(self, n_layers, n_source_vocab, n_target_vocab, n_source_char, n_target_char, n_units):
         super(Seq2seq, self).__init__(
-            embed_x=L.EmbedID(n_source_vocab, n_units),
-            embed_y=L.EmbedID(n_target_vocab, n_units * 2),
+            embed_xw=L.EmbedID(n_source_vocab, n_units),
             embed_xc=L.EmbedID(n_source_char, n_units),
-            embed_yc=L.EmbedID(n_target_char, n_units),
-            encoder_f=L.NStepGRU(n_layers, n_units, n_units, 0.1),
-            encoder_b=L.NStepGRU(n_layers, n_units, n_units, 0.1),
-            char_encoder=L.NStepGRU(n_layers, n_units, n_units, 0.1),
+            embed_y=L.EmbedID(n_target_vocab, n_units * 2),
+            encoder_fw=L.NStepGRU(n_layers, n_units, n_units, 0.1),
+            encoder_bw=L.NStepGRU(n_layers, n_units, n_units, 0.1),
+            encoder_fc=L.NStepGRU(n_layers, n_units, n_units, 0.1),
+            encoder_bc=L.NStepGRU(n_layers, n_units, n_units, 0.1),
             decoder=My.NStepGRU(n_layers, n_units * 2, n_units * 2, 0.1),
-            char_decoder=L.NStepGRU(n_layers, n_units, n_units, 0.1),
-            char_att_decoder=My.NStepGRU(n_layers, n_units, n_units, 0.1),
             W=L.Linear(n_units * 2, n_target_vocab),
             W_hat=L.Linear(n_units * 4, n_units),
             W_char=L.Linear(n_units, n_target_char),
