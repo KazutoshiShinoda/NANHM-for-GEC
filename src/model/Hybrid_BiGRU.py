@@ -222,13 +222,13 @@ class Seq2seq(chainer.Chain):
         print()
         return loss
 
-    def translate(self, xs, ys, max_length=100):
+    def translate(self, xs, max_length=100):
         print("Now translating")
         batch = len(xs)
         print("batch",batch)
-        loss_w = 0
-        loss_c1 = 0
-        loss_c2 = 0
+        #loss_w = 0
+        #loss_c1 = 0
+        #loss_c2 = 0
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
             char_hidden=[]
             
@@ -243,11 +243,11 @@ class Seq2seq(chainer.Chain):
             valid_wx_section = np.insert(wx_section, 0, 0)
             concat_wxs = np.concatenate(wxs)
             
-            wys = [np.array([target_word_ids.get(w, UNK) for w in y], dtype=np.int32) for y in ys]
-            eos = self.xp.array([EOS], 'i')
-            ys_out = [F.concat([y, eos], axis=0) for y in wys]
-            concat_ys_out = F.concat(ys_out, axis=0)
-            n_words = len(concat_ys_out)
+            #wys = [np.array([target_word_ids.get(w, UNK) for w in y], dtype=np.int32) for y in ys]
+            #eos = self.xp.array([EOS], 'i')
+            #ys_out = [F.concat([y, eos], axis=0) for y in wys]
+            #concat_ys_out = F.concat(ys_out, axis=0)
+            #n_words = len(concat_ys_out)
             
             exs = sequence_embed(self.embed_x, wxs)
             exs = list(map(lambda s, t, u: get_unk_hidden_vector(s, t, u, self.embed_xc, self.char_encoder, char_hidden) , exs, unk_pos, unk_xs))
@@ -330,9 +330,9 @@ class Seq2seq(chainer.Chain):
                                 print(pred_cos)
                                 print(target_chars[pred_cos])
                                 result_c.append(pred_cos)
-                            concat_cos_out = F.concat(cos_out_list, axis=0)
-                            loss_c1= loss_c1 + F.sum(F.softmax_cross_entropy(
-                                concat_cos_out, concat_cys_out, reduce='no'))
+                            #concat_cos_out = F.concat(cos_out_list, axis=0)
+                            #loss_c1= loss_c1 + F.sum(F.softmax_cross_entropy(
+                            #    concat_cos_out, concat_cys_out, reduce='no'))
                         else:
                             c_ht = char_hidden[z_s]
                             for b in range(10):
@@ -350,9 +350,9 @@ class Seq2seq(chainer.Chain):
                                 print(pred_cos)
                                 print(target_chars[pred_cos])
                                 result_c.append(pred_cos)
-                            concat_cos_out = F.concat(cos_out_list, axis=0)
-                            loss_c2 = loss_c2 + F.sum(F.softmax_cross_entropy(
-                                concat_cos_out, concat_cys_out, reduce='no'))
+                            #concat_cos_out = F.concat(cos_out_list, axis=0)
+                            #loss_c2 = loss_c2 + F.sum(F.softmax_cross_entropy(
+                            #    concat_cos_out, concat_cys_out, reduce='no'))
                         r = ""
                         for c in result_c:
                             if c == BOW:
@@ -362,10 +362,10 @@ class Seq2seq(chainer.Chain):
                         pred_w = target_word_ids.get(r, UNK)
                         results_c.append(pred_w)
                     concat_pred_w[is_unk] = results_c
-                loss_w = loss_w + F.sum(F.softmax_cross_entropy(
-                    concat_os_out[is_unk!=1], concat_ys_out[is_unk!=1], reduce='no'))
+                #loss_w = loss_w + F.sum(F.softmax_cross_entropy(
+                #    concat_os_out[is_unk!=1], concat_ys_out[is_unk!=1], reduce='no'))
                 result.append(concat_pred_w)
-            loss = F.sum(loss_w + Alpha * loss_c1 + Beta * loss_c2) / n_words
+            #loss = F.sum(loss_w + Alpha * loss_c1 + Beta * loss_c2) / n_words
         result = cuda.to_cpu(self.xp.stack(result).T)
 
         # Remove EOS taggs
@@ -375,7 +375,13 @@ class Seq2seq(chainer.Chain):
             if len(inds) > 0:
                 y = y[:inds[0, 0]]
             outs.append(y)
-        return outs, loss, n_words
+        return outs
+    
+    def CalculateValLoss(self, xs, ys):
+        with chainer.no_backprop_mode(), chainer.using_config('train', False):
+            loss = self(xs, ys).data
+            n_words = np.sum([len(y) + 1 for y in ys])
+        return loss, n_words
     
     def get_n_params(self):
         return self.n_params
@@ -424,7 +430,8 @@ class CalculateBleu(chainer.training.Extension):
 
                 sources = [
                     chainer.dataset.to_device(self.device, x) for x in sources]
-                ys, loss, n_words = self.model.translate(sources, targets, self.max_length)
+                ys = self.model.translate(sources, self.max_length)
+                loss, n_words = self.model.CalculateValLoss(sources, targets)
                 sum_loss += loss * n_words
                 sum_n_words += n_words
                 ys = [y.tolist() for y in ys]
