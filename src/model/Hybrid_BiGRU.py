@@ -94,7 +94,7 @@ class Seq2seq(chainer.Chain):
         self.n_params = 6
         
     def __call__(self, xs, ys):
-        loss = CalcLoss(self, xs, ys)
+        loss = self.CalcLoss(self, xs, ys)
         reporter.report({'loss': loss.data}, self)
         perp = self.xp.exp(loss.data)
         reporter.report({'perp': perp}, self)
