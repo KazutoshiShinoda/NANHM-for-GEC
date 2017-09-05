@@ -112,6 +112,7 @@ class Seq2seq(chainer.Chain):
         eos = self.xp.array([EOS], 'i')
         ys_in = [F.concat([eos, y], axis=0) for y in wys]
         ys_out = [F.concat([y, eos], axis=0) for y in wys]
+        n_words = len(ys_out)
 
         # Both xs and ys_in are lists of arrays.
         exs = sequence_embed(self.embed_x, wxs)
@@ -211,7 +212,7 @@ class Seq2seq(chainer.Chain):
         loss_w = F.sum(F.softmax_cross_entropy(
             concat_os_out[is_unk!=1], concat_ys_out[is_unk!=1], reduce='no'))
         
-        loss = F.sum(loss_w + Alpha * loss_c1 + Beta * loss_c2) / batch
+        loss = F.sum(loss_w + Alpha * loss_c1 + Beta * loss_c2) / n_words
 
         reporter.report({'loss': loss.data}, self)
         n_words = concat_ys_out.shape[0]
@@ -221,10 +222,13 @@ class Seq2seq(chainer.Chain):
         print()
         return loss
 
-    def translate(self, xs, max_length=100):
+    def translate(self, xs, ys, max_length=100):
         print("Now translating")
         batch = len(xs)
         print("batch",batch)
+        loss_w = 0
+        loss_c1 = 0
+        loss_c2 = 0
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
             char_hidden=[]
             
@@ -238,6 +242,11 @@ class Seq2seq(chainer.Chain):
             wx_section = np.cumsum(wx_len[:-1])
             valid_wx_section = np.insert(wx_section, 0, 0)
             concat_wxs = np.concatenate(wxs)
+            
+            wys = [np.array([target_word_ids.get(w, UNK) for w in y], dtype=np.int32) for y in ys]
+            ys_out = [F.concat([y, eos], axis=0) for y in wys]
+            concat_ys_out = F.concat(ys_out, axis=0)
+            n_words = len(concat_ys_out)
             
             exs = sequence_embed(self.embed_x, wxs)
             exs = list(map(lambda s, t, u: get_unk_hidden_vector(s, t, u, self.embed_xc, self.char_encoder, char_hidden) , exs, unk_pos, unk_xs))
@@ -270,6 +279,8 @@ class Seq2seq(chainer.Chain):
                 if UNK in concat_pred_w:
                     N = np.sum(is_unk)
                     
+                    true_wys = concat_ys_out[is_unk]
+                    
                     concat_c_s = F.concat(c_s_list, axis=0)
                     concat_h_bar = F.concat(h_bar_list, axis=0)
 
@@ -285,6 +296,18 @@ class Seq2seq(chainer.Chain):
                     #各UNK単語について
                     results_c = []
                     for i in range(N):
+                        wy = true_wys[i]
+                        if wy != UNK and wy != EOS:
+                            cys = np.array([[target_char_ids[c] for c in list(target_words[wy])]],
+                                           np.int32)
+                        elif wy == UNK:
+                            #本来ありえない
+                            cys = np.array([[target_char_ids['UNK']]], np.int32)
+                        elif wy == EOS:
+                            cys = np.array([[target_char_ids['BOW']]], np.int32)
+                        cys_out = [F.concat([y, bow], axis=0) for y in cys]
+                        concat_cys_out = F.concat(cys_out, axis=0)
+
                         result_c = []
                         cy = self.xp.full(1, BOW, 'i')
                         cy = F.split_axis(cy, 1, 0)
@@ -292,16 +315,22 @@ class Seq2seq(chainer.Chain):
                         z_s = int(z_ss[i].data)
                         ds_hat = F.reshape(ds_hats[i], (1, 1, ds_hats[i].shape[0]))
                         
+                        cos_out_list = []
                         if concat_wxs[z_s] != UNK:
                             for b in range(10):
                                 #attentionなし文字ベースdecoder
                                 ds_hat, cos = self.char_decoder(ds_hat, cey)
                                 cos_out = self.W_char(cos[0])
-                                pred_cos = self.xp.argmax(cos_out.data, axis=1).astype('i')
+                                cos_out_list.append(cos_out)
+                                pred_cos = self.xp.argmax(cos_out.data,
+                                                          axis=1).astype('i')
                                 cey = self.embed_yc(pred_cos)
                                 print(pred_cos)
                                 print(target_chars[pred_cos])
                                 result_c.append(pred_cos)
+                            concat_cos_out = F.concat(cos_out_list, axis=0)
+                            loss_c1= loss_c1 + F.sum(F.softmax_cross_entropy(
+                                concat_cos_out, concat_cys_out, reduce='no'))
                         else:
                             c_ht = char_hidden[z_s]
                             for b in range(10):
@@ -313,11 +342,15 @@ class Seq2seq(chainer.Chain):
                                     c_h0 = F.reshape(c_h0, (self.n_layers, c_h0.shape[0], c_h0.shape[1]))
                                 c_h_list, c_h_bar_list, c_c_s_list, c_z_s_list = self.char_att_decoder(c_h0, c_ht, cey)
                                 cos_out = self.W_char(h_list[-1])
+                                cos_out_list.append(cos_out)
                                 pred_cos = self.xp.argmax(cos_out.data, axis=1).astype('i')
                                 cey = self.embed_yc(pred_cos)
                                 print(pred_cos)
                                 print(target_chars[pred_cos])
                                 result_c.append(pred_cos)
+                            concat_cos_out = F.concat(cos_out_list, axis=0)
+                            loss_c2 = loss_c2 + F.sum(F.softmax_cross_entropy(
+                                concat_cos_out, concat_cys_out, reduce='no'))
                         r = ""
                         for c in result_c:
                             if c == BOW:
@@ -327,7 +360,10 @@ class Seq2seq(chainer.Chain):
                         pred_w = target_word_ids.get(r, UNK)
                         results_c.append(pred_w)
                     concat_pred_w[is_unk] = results_c
+                loss_w = loss_w + F.sum(F.softmax_cross_entropy(
+                    concat_os_out[is_unk!=1], concat_ys_out[is_unk!=1], reduce='no'))
                 result.append(concat_pred_w)
+            loss = F.sum(loss_w + Alpha * loss_c1 + Beta * loss_c2) / n_words
         result = cuda.to_cpu(self.xp.stack(result).T)
 
         # Remove EOS taggs
@@ -337,7 +373,7 @@ class Seq2seq(chainer.Chain):
             if len(inds) > 0:
                 y = y[:inds[0, 0]]
             outs.append(y)
-        return outs
+        return outs, loss, n_words
     
     def get_n_params(self):
         return self.n_params
@@ -378,20 +414,27 @@ class CalculateBleu(chainer.training.Extension):
         with chainer.no_backprop_mode():
             references = []
             hypotheses = []
+            sum_loss=0
+            sum_n_words=0
             for i in range(0, len(self.test_data), self.batch):
                 sources, targets = zip(*self.test_data[i:i + self.batch])
                 references.extend([[t[0].tolist()] for t in targets])
 
                 sources = [
                     chainer.dataset.to_device(self.device, x) for x in sources]
-                ys = [y.tolist()
-                      for y in self.model.translate(sources, self.max_length)]
+                ys, loss, n_words = self.model.translate(sources, targets, self.max_length)
+                sum_loss += loss * n_words
+                sum_n_words += n_words
+                ys = [y.tolist() for y in ys]
                 hypotheses.extend(ys)
-
+        loss = sum_loss / sum_n_words
+        if type(loss) != int or type(loss) != float:
+            loss = loss.data
         bleu = bleu_score.corpus_bleu(
             references, hypotheses,
             smoothing_function=bleu_score.SmoothingFunction().method1)
-        reporter.report({self.key: bleu})
+        reporter.report({self.key[0]: bleu})
+        reporter.report({self.key[1]: loss})
 
 
 def count_lines(path):
@@ -553,12 +596,14 @@ def main():
             print('#  result : ' + result_sentence)
             print('#  expect : ' + target_sentence)
 
-        trainer.extend(translate, trigger=(args.trigger, 'iteration'))
+        #trainer.extend(translate, trigger=(args.trigger, 'iteration'))
         trainer.extend(
             CalculateBleu(
-                model, test_data, 'validation/main/bleu', device=args.gpu),
+                model, test_data, 
+                ['validation/main/bleu', 'validation/main/loss'],
+                device=args.gpu),
             trigger=(args.trigger, 'iteration'))
-
+    
     print('start training')
     trainer.run()
     print('=>finished!')
