@@ -130,10 +130,14 @@ class Seq2seq(chainer.Chain):
         
         batch = len(xs)
         # None represents a zero vector in an encoder.
-        _, hf = self.encoder_f(None, exs_f)
-        _, hb = self.encoder_b(None, exs_b)
+        _, hfw = self.encoder_fw(None, wexs_f)
+        _, hbw = self.encoder_bw(None, wexs_b)
+        _, hfc = self.encoder_fc(None, cexs_f)
+        _, hbc = self.encoder_bc(None, cexs_b)
+        
         # 隠れ状態ベクトルの集合
-        ht = list(map(lambda x,y: F.concat([x, y], axis=1), hf, hb))
+        htw = list(map(lambda x,y: F.concat([x, y], axis=1), hfw, hbw))
+        htc = list(map(lambda x,y: F.concat([x, y], axis=1), hfc, hbc))
         
         h_list, h_bar_list, c_s_list, z_s_list = self.decoder(None, ht, eys)
         
