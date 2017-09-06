@@ -387,8 +387,8 @@ class Seq2seq(chainer.Chain):
     
     def CalculateValLoss(self, xs, ys):
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
-            loss, n_w, n_c, n_c_a = self.CalcLoss(xs, ys).data
-        return loss
+            loss, n_w, n_c, n_c_a = self.CalcLoss(xs, ys)
+        return loss.data
     
     def get_n_params(self):
         return self.n_params
