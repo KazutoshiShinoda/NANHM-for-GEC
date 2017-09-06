@@ -13,7 +13,7 @@ import chainer
 from chainer import cuda
 import chainer.functions as F
 import chainer.links as L
-from my_chainer.links as My
+import my_chainer.links as My
 from chainer import reporter
 from chainer import training
 from chainer.training import extensions
@@ -106,7 +106,7 @@ class Seq2seq(chainer.Chain):
     def CalcLoss(self, xs, ys):
         char_hidden=[]
         wxs = [np.array([source_word_ids.get(w, UNK) for w in x], dtype=np.int32) for x in xs]
-        cxs = [np.array([source_char_ids.get(c, UNK) for c in list("".join(x))]) for x in xs]
+        cxs = [np.array([source_char_ids.get(c, UNK) for c in list("".join(x))], dtype=np.int32) for x in xs]
         concat_wxs = np.concatenate(wxs)
         concat_cxs = np.concatenate(cxs)
         
@@ -124,7 +124,7 @@ class Seq2seq(chainer.Chain):
         wexs_f = wexs
         wexs_b = [wex[::-1] for wex in wexs]
         cexs_f = cexs
-        cexs_f = [cex[::-1] for cex in cexs]
+        cexs_b = [cex[::-1] for cex in cexs]
         
         eys = sequence_embed(self.embed_y, ys_in)
         
