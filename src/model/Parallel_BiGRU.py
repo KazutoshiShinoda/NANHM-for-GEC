@@ -92,7 +92,7 @@ class Seq2seq(chainer.Chain):
         self.n_params = 6
         
     def __call__(self, xs, ys):
-        loss, n_w, n_c, n_c_a = self.CalcLoss(xs, ys)
+        loss = self.CalcLoss(xs, ys)
         reporter.report({'loss': loss.data}, self)
         perp = self.xp.exp(loss.data)
         reporter.report({'perp': perp}, self)
@@ -152,84 +152,10 @@ class Seq2seq(chainer.Chain):
         concat_os_out = self.W(concat_os)
         concat_ys_out = F.concat(ys_out, axis=0)
         
-        loss_w = 0
-        loss_c1 = 0
-        loss_c2 = 0
-        
-        # If predicted word is UNK
-        concat_pred_w = F.argmax(concat_os_out, axis=1)
-        #concat_isUNK = concat_pred_w==0
-        
-        is_unk = concat_pred_w.data==UNK
-        count_unk_with_no_att = 0
-        if UNK in concat_pred_w.data:
-            print(True)
-            ##案２：
-            #全てconcat
-            #総単語数*2048
-            concat_c_s = F.concat(c_s_list, axis=0)
-            concat_h_bar = F.concat(h_bar_list, axis=0)
-            
-            c_ss = concat_c_s[is_unk]
-            h_bars = concat_h_bar[is_unk]
-            c = F.concat([c_ss, h_bars], axis=1)
-            ds_hats=F.relu(self.W_hat(c))
-            
-            z_s_len = [len(z_s) - 1 for z_s in z_s_list]
-            z_s_section = np.cumsum(z_s_len[:-1])
-            valid_z_s_section = np.insert(z_s_section, 0, 0)
-            abs_z_s_list = [z_s_list[i] + valid_z_s_section[i] for i in range(len(z_s_list))]
-            concat_z_s = F.concat(abs_z_s_list, axis=0)
-            z_ss = concat_z_s[is_unk]
-            
-            true_wys = concat_ys_out[is_unk]
-            #"予想単語==UNK"の各ケースについて個別に処理
-            for i,wy in enumerate(true_wys):
-                bow = self.xp.array([BOW], 'i')
-                wy = int(wy.data)
-                print(target_words[wy])
-                if wy != UNK and wy != EOS:
-                    cys = np.array([[target_char_ids[c] for c in list(target_words[wy])]], np.int32)
-                elif wy == UNK:
-                    #本来ありえない
-                    cys = np.array([[target_char_ids['UNK']]], np.int32)
-                elif wy == EOS:
-                    cys = np.array([[target_char_ids['BOW']]], np.int32)
-                cys_in = [F.concat([bow, y], axis=0) for y in cys]
-                cys_out = [F.concat([y, bow], axis=0) for y in cys]
-                concat_cys_out = F.concat(cys_out, axis=0)
-                ceys = sequence_embed(self.embed_yc, cys_in)
-                z_s = int(z_ss[i].data)
-                
-                ds_hat =F.reshape(ds_hats[i], (1, 1, ds_hats[i].shape[0]))
-                if concat_wxs[z_s] != UNK:
-                    #attentionなし文字ベースdecoder
-                    _, cos = self.char_decoder(ds_hat, ceys)
-                    print("attなし")
-                    concat_cos = F.concat(cos, axis=0)
-                    concat_cos_out=self.W_char(concat_cos)
-                    loss_c1= loss_c1 + F.sum(F.softmax_cross_entropy(
-                        concat_cos_out, concat_cys_out, reduce='no'))
-                    count_unk_with_no_att += 1
-                else:
-                    #attentionあり文字ベースdecoder
-                    ht = char_hidden[z_s]
-                    h_list, h_bar_list, c_s_list, z_s_list = self.char_att_decoder(ds_hat, ht, ceys)
-                    print("attあり")
-                    concat_cos = F.concat(h_list, axis=0)
-                    concat_cos_out=self.W_char(concat_cos)
-                    loss_c2 = loss_c2 + F.sum(F.softmax_cross_entropy(
-                        concat_cos_out, concat_cys_out, reduce='no'))
-        else:
-            print(False)
         n_words = concat_ys_out.shape[0]
-        n_unk = np.sum(is_unk)
-        count_unk_with_att = n_unk - count_unk_with_no_att
-        count_kno = n_words - n_unk
-        loss_w = F.sum(F.softmax_cross_entropy(
-            concat_os_out[is_unk!=1], concat_ys_out[is_unk!=1], reduce='no'))
-        loss = F.sum(loss_w + Alpha * loss_c1 + Beta * loss_c2) / n_words
-        return loss, count_kno, count_unk_with_no_att, count_unk_with_att
+        loss = F.sum(F.softmax_cross_entropy(
+            concat_os_out, concat_ys_out, reduce='no')) / n_words
+        return loss
 
     def translate(self, xs, max_length=100):
         print("Now translating")
@@ -383,7 +309,7 @@ class Seq2seq(chainer.Chain):
     
     def CalculateValLoss(self, xs, ys):
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
-            loss, n_w, n_c, n_c_a = self.CalcLoss(xs, ys)
+            loss = self.CalcLoss(xs, ys)
         return loss.data
     
     def get_n_params(self):
