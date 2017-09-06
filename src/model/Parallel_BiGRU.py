@@ -48,29 +48,6 @@ def sequence_embed(embed, xs):
     exs = F.split_axis(ex, x_section, 0)
     return exs
 
-def convert_unk(embed, cs):
-    cs = F.broadcast(cs)
-    cexs = embed(cs)
-    return (cexs,)
-
-def get_unk_hidden_vector(ex, pos, x, embed, encoder, char_hidden):
-    if len(pos)==0:
-        char_hidden.extend([0]*len(ex))
-        return ex
-    else:
-        hidden=[]
-        for j in range(len(ex)):
-            if j in pos:
-                x_ = x[pos==j]
-                cexs = convert_unk(embed, x_[0])
-                hx, os = encoder(None, cexs)
-                hidden.append(os)
-                ex[j].data = hx[-1][-1].data
-            else:
-                hidden.append(0)
-        char_hidden.extend(hidden)
-        return ex
-
 class Seq2seq(chainer.Chain):
 
     def __init__(self, n_layers, n_source_vocab, n_target_vocab, n_source_char, n_target_char, n_units):
@@ -84,8 +61,6 @@ class Seq2seq(chainer.Chain):
             encoder_bc=L.NStepGRU(n_layers, n_units, n_units, 0.1),
             decoder=My.NStepGRU(n_layers, n_units * 2, n_units * 2, 0.1),
             W=L.Linear(n_units * 2, n_target_vocab),
-            W_hat=L.Linear(n_units * 4, n_units),
-            W_char=L.Linear(n_units, n_target_char),
         )
         self.n_layers = n_layers
         self.n_units = n_units
@@ -104,7 +79,6 @@ class Seq2seq(chainer.Chain):
         return loss
         
     def CalcLoss(self, xs, ys):
-        char_hidden=[]
         wxs = [np.array([source_word_ids.get(w, UNK) for w in x], dtype=np.int32) for x in xs]
         cxs = [np.array([source_char_ids.get(c, UNK) for c in list("".join(x))], dtype=np.int32) for x in xs]
         concat_wxs = np.concatenate(wxs)
@@ -161,141 +135,48 @@ class Seq2seq(chainer.Chain):
         print("Now translating")
         batch = len(xs)
         print("batch",batch)
-        #loss_w = 0
-        #loss_c1 = 0
-        #loss_c2 = 0
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
-            char_hidden=[]
-            
             wxs = [np.array([source_word_ids.get(w, UNK) for w in x], dtype=np.int32) for x in xs]
             wx_len = [len(wx) for wx in wxs]
             wx_section = np.cumsum(wx_len[:-1])
             valid_wx_section = np.insert(wx_section, 0, 0)
+            cxs = [np.array([source_char_ids.get(c, UNK) for c in list("".join(x))], dtype=np.int32) for x in xs]
+            
             concat_wxs = np.concatenate(wxs)
             
-            #wys = [np.array([target_word_ids.get(w, UNK) for w in y], dtype=np.int32) for y in ys]
-            #eos = self.xp.array([EOS], 'i')
-            #ys_out = [F.concat([y, eos], axis=0) for y in wys]
-            #concat_ys_out = F.concat(ys_out, axis=0)
-            #n_words = len(concat_ys_out)
+            wexs = sequence_embed(self.embed_xw, wxs)
+            cexs = sequence_embed(self.embed_xc, cxs)
             
-            exs = sequence_embed(self.embed_x, wxs)
-            exs = list(map(lambda s, t, u: get_unk_hidden_vector(s, t, u, self.embed_xc, self.char_encoder, char_hidden) , exs, unk_pos, unk_xs))
+            wexs_f = wexs
+            wexs_b = [wex[::-1] for wex in wexs]
+            cexs_f = cexs
+            cexs_b = [cex[::-1] for cex in cexs]
             
-            exs_f = exs
-            exs_b = [ex[::-1] for ex in exs]
-            _, hf = self.encoder_f(None, exs_f)
-            _, hb = self.encoder_b(None, exs_b)
-            ht = list(map(lambda x,y: F.concat([x, y], axis=1), hf, hb))
+            _, hfw = self.encoder_fw(None, wexs_f)
+            _, hbw = self.encoder_bw(None, wexs_b)
+            _, hfc = self.encoder_fc(None, cexs_f)
+            _, hbc = self.encoder_bc(None, cexs_b)
+            
+            hbw = [F.get_item(h, range(len(h))[::-1]) for h in hbw]
+            hbc = [F.get_item(h, range(len(h))[::-1]) for h in hbc]
+            htw = list(map(lambda x,y: F.concat([x, y], axis=1), hfw, hbw))
+            htc = list(map(lambda x,y: F.concat([x, y], axis=1), hfc, hbc))
+            ht = list(map(lambda x,y: F.concat([x, y], axis=0), htw, htc))
+            
             ys = self.xp.full(batch, EOS, 'i')
             result = []
-            h_list = None
-            for a in range(max_length):
+            h=None
+            for i in range(max_length):
                 eys = self.embed_y(ys)
-                eys = F.split_axis(eys, batch, 0)
-                if h_list==None:
-                    h0 = h_list
-                else:
-                    h0 = F.transpose_sequence(h_list)[-1]
-                    h0 = F.reshape(h0, (self.n_layers, h0.shape[0], h0.shape[1]))
-                #h0 : {type:variable, shape:(n_layers*batch*dimentionality)} or None
-                h_list, h_bar_list, c_s_list, z_s_list = self.decoder(h0, ht, eys)
-                
-                os = h_list
-                concat_os = F.concat(os, axis=0)
-                concat_os_out = self.W(concat_os)
-                concat_pred_w = self.xp.argmax(concat_os_out.data, axis=1).astype('i')
-                is_unk = concat_pred_w==UNK
-                
-                if UNK in concat_pred_w:
-                    N = np.sum(is_unk)
-                    
-                    true_wys = concat_ys_out[is_unk]
-                    
-                    concat_c_s = F.concat(c_s_list, axis=0)
-                    concat_h_bar = F.concat(h_bar_list, axis=0)
-
-                    c_ss = concat_c_s[is_unk]
-                    h_bars = concat_h_bar[is_unk]
-                    c = F.concat([c_ss, h_bars], axis=1)
-                    ds_hats=F.relu(self.W_hat(c))
-                    
-                    abs_z_s_list = [z_s_list[i] + valid_wx_section[i] for i in range(len(z_s_list))]
-                    concat_z_s = F.concat(abs_z_s_list, axis=0)
-                    z_ss = concat_z_s[is_unk]
-                    
-                    #各UNK単語について
-                    results_c = []
-                    bow = self.xp.array([BOW], 'i')
-                    for i in range(N):
-                        wy = true_wys[i]
-                        if wy != UNK and wy != EOS:
-                            cys = np.array([[target_char_ids[c] for c in list(target_words[wy])]],
-                                           np.int32)
-                        elif wy == UNK:
-                            #本来ありえない
-                            cys = np.array([[target_char_ids['UNK']]], np.int32)
-                        elif wy == EOS:
-                            cys = np.array([[target_char_ids['BOW']]], np.int32)
-                        cys_out = [F.concat([y, bow], axis=0) for y in cys]
-                        concat_cys_out = F.concat(cys_out, axis=0)
-
-                        result_c = []
-                        cy = self.xp.full(1, BOW, 'i')
-                        cy = F.split_axis(cy, 1, 0)
-                        cey = sequence_embed(self.embed_yc, cy)
-                        z_s = int(z_ss[i].data)
-                        ds_hat = F.reshape(ds_hats[i], (1, 1, ds_hats[i].shape[0]))
-                        
-                        cos_out_list = []
-                        if concat_wxs[z_s] != UNK:
-                            for b in range(10):
-                                #attentionなし文字ベースdecoder
-                                ds_hat, cos = self.char_decoder(ds_hat, cey)
-                                cos_out = self.W_char(cos[0])
-                                cos_out_list.append(cos_out)
-                                pred_cos = self.xp.argmax(cos_out.data,
-                                                          axis=1).astype('i')
-                                cey = self.embed_yc(pred_cos)
-                                print(pred_cos)
-                                print(target_chars[pred_cos])
-                                result_c.append(pred_cos)
-                            #concat_cos_out = F.concat(cos_out_list, axis=0)
-                            #loss_c1= loss_c1 + F.sum(F.softmax_cross_entropy(
-                            #    concat_cos_out, concat_cys_out, reduce='no'))
-                        else:
-                            c_ht = char_hidden[z_s]
-                            for b in range(10):
-                                #attentionあり文字ベースdecoder
-                                if b==0:
-                                    c_h0 = ds_hat
-                                else:
-                                    c_h0 = F.transpose_sequence(h_list)[-1]
-                                    c_h0 = F.reshape(c_h0, (self.n_layers, c_h0.shape[0], c_h0.shape[1]))
-                                c_h_list, c_h_bar_list, c_c_s_list, c_z_s_list = self.char_att_decoder(c_h0, c_ht, cey)
-                                cos_out = self.W_char(h_list[-1])
-                                cos_out_list.append(cos_out)
-                                pred_cos = self.xp.argmax(cos_out.data, axis=1).astype('i')
-                                cey = self.embed_yc(pred_cos)
-                                print(pred_cos)
-                                print(target_chars[pred_cos])
-                                result_c.append(pred_cos)
-                            #concat_cos_out = F.concat(cos_out_list, axis=0)
-                            #loss_c2 = loss_c2 + F.sum(F.softmax_cross_entropy(
-                            #    concat_cos_out, concat_cys_out, reduce='no'))
-                        r = ""
-                        for c in result_c:
-                            if c == BOW:
-                                break
-                            r+=target_chars.get(c, UNK)
-                        print(r)
-                        pred_w = target_word_ids.get(r, UNK)
-                        results_c.append(pred_w)
-                    concat_pred_w[is_unk] = results_c
-                #loss_w = loss_w + F.sum(F.softmax_cross_entropy(
-                #    concat_os_out[is_unk!=1], concat_ys_out[is_unk!=1], reduce='no'))
-                result.append(concat_pred_w)
-            #loss = F.sum(loss_w + Alpha * loss_c1 + Beta * loss_c2) / n_words
+                eys = chainer.functions.split_axis(eys, batch, 0)
+                h_list, h_bar_list, c_s_list, z_s_list = self.decoder(h, ht, eys)
+                cys = chainer.functions.concat(h_list, axis=0)
+                wy = self.W(cys)
+                ys = self.xp.argmax(wy.data, axis=1).astype('i')
+                result.append(ys)
+                h = F.transpose_sequence(h_list)[-1]
+                h = F.reshape(h, (self.n_layers, h.shape[0], h.shape[1]))
+        
         result = cuda.to_cpu(self.xp.stack(result).T)
 
         # Remove EOS taggs
