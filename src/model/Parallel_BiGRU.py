@@ -136,9 +136,11 @@ class Seq2seq(chainer.Chain):
         _, hbc = self.encoder_bc(None, cexs_b)
         
         # 隠れ状態ベクトルの集合
+        hbw = [F.get_item(h, range(len(h))[::-1]) for h in hbw]
+        hbc = [F.get_item(h, range(len(h))[::-1]) for h in hbc]
         htw = list(map(lambda x,y: F.concat([x, y], axis=1), hfw, hbw))
         htc = list(map(lambda x,y: F.concat([x, y], axis=1), hfc, hbc))
-        
+        ht = list(map(lambda x,y: F.concat([x, y], axis=0), htw, htc))
         h_list, h_bar_list, c_s_list, z_s_list = self.decoder(None, ht, eys)
         
         # It is faster to concatenate data before calculating loss
