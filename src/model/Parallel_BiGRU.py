@@ -105,11 +105,8 @@ class Seq2seq(chainer.Chain):
         
     def CalcLoss(self, xs, ys):
         char_hidden=[]
-        '''
-        wxs = [x[0] for x in xs]
-        unk_xs = [x[1] for x in xs]
-        '''
         wxs = [np.array([source_word_ids.get(w, UNK) for w in x], dtype=np.int32) for x in xs]
+        cxs = [np.array([source_char_ids.get(c, UNK) for c in list("".join(x))]) for x in xs]
         unk_words = list(map(lambda x,y: np.array(y)[x==UNK] , wxs, xs))
         unk_xs = list(map(lambda x: np.array([
             np.array([source_char_ids.get(c, UNK) for c in list(w)], dtype=np.int32)
@@ -385,8 +382,8 @@ class Seq2seq(chainer.Chain):
     
     def CalculateValLoss(self, xs, ys):
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
-            loss, n_w, n_c, n_c_a = self.CalcLoss(xs, ys).data
-        return loss
+            loss, n_w, n_c, n_c_a = self.CalcLoss(xs, ys)
+        return loss.data
     
     def get_n_params(self):
         return self.n_params
