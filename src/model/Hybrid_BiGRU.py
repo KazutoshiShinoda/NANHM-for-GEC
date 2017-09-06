@@ -138,6 +138,7 @@ class Seq2seq(chainer.Chain):
         _, hf = self.encoder_f(None, exs_f)
         _, hb = self.encoder_b(None, exs_b)
         # 隠れ状態ベクトルの集合
+        hb = [h[::-1] for h in hb]
         ht = list(map(lambda x,y: F.concat([x, y], axis=1), hf, hb))
         
         h_list, h_bar_list, c_s_list, z_s_list = self.decoder(None, ht, eys)
