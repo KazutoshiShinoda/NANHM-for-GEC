@@ -22,14 +22,10 @@ from chainer import serializers
 UNK = 0
 EOS = 1
 
-target_words = {}
-target_word_ids = {}
-target_chars = {}
-target_char_ids = {}
+target = {}
+target_ids = {}
 source_word_ids = {}
 source_char_ids = {}
-
-char_hidden = []
 
 def sequence_embed(embed, xs):
     x_len = [len(x) for x in xs]
@@ -40,7 +36,7 @@ def sequence_embed(embed, xs):
 
 class Seq2seq(chainer.Chain):
 
-    def __init__(self, n_layers, n_source_vocab, n_target_vocab, n_source_char, n_target_char, n_units):
+    def __init__(self, n_layers, n_source_vocab, n_target_vocab, n_source_char, n_units):
         super(Seq2seq, self).__init__(
             embed_xw=L.EmbedID(n_source_vocab, n_units),
             embed_xc=L.EmbedID(n_source_char, n_units),
@@ -54,7 +50,7 @@ class Seq2seq(chainer.Chain):
         )
         self.n_layers = n_layers
         self.n_units = n_units
-        self.n_params = 6
+        self.n_params = 5
         
     def __call__(self, xs, ys):
         loss = self.CalcLoss(xs, ys)
@@ -72,7 +68,7 @@ class Seq2seq(chainer.Chain):
         concat_cxs = np.concatenate(cxs)
         
         # Target token can be either a word or a char
-        wcys = [np.array([target_word_ids.get(w, UNK) for w in y], dtype=np.int32) for y in ys]
+        wcys = [np.array([target_ids.get(w, UNK) for w in y], dtype=np.int32) for y in ys]
         
         eos = self.xp.array([EOS], 'i')
         ys_in = [F.concat([eos, y], axis=0) for y in wcys]
@@ -246,7 +242,7 @@ def load_vocabulary(path):
         return {line.strip(): i for i, line in enumerate(f)}
 
 
-def load_data(word_voc, char_voc, path):
+def load_data(path):
     n_lines = count_lines(path)
     bar = progressbar.ProgressBar()
     data = []
@@ -265,7 +261,7 @@ def calculate_unknown_ratio(data):
 
 
 def main():
-    global target_words, target_word_ids, target_chars, target_char_ids,source_word_ids,source_char_ids
+    global target, target_ids, source_word_ids,source_char_ids
     todaydetail = dt.today()
     todaydetailf = todaydetail.strftime("%Y%m%d-%H%M%S")
     print('start at ' + todaydetailf)
@@ -273,9 +269,8 @@ def main():
     parser.add_argument('SOURCE', help='source sentence list')
     parser.add_argument('TARGET', help='target sentence list')
     parser.add_argument('SOURCE_WORD_VOCAB', help='source word vocabulary file')
-    parser.add_argument('TARGET_WORD_VOCAB', help='target word vocabulary file')
     parser.add_argument('SOURCE_CHAR_VOCAB', help='source char vocabulary file')
-    parser.add_argument('TARGET_CHAR_VOCAB', help='target char vocabulary file')
+    parser.add_argument('TARGET_VOCAB', help='target vocabulary file')
     parser.add_argument('--validation-source',
                         help='source sentence list for validation')
     parser.add_argument('--validation-target',
@@ -307,15 +302,13 @@ def main():
     args = parser.parse_args()
 
     source_word_ids = load_vocabulary(args.SOURCE_WORD_VOCAB)
-    target_word_ids = load_vocabulary(args.TARGET_WORD_VOCAB)
+    target_ids = load_vocabulary(args.TARGET_VOCAB)
     source_words = {i: w for w, i in source_word_ids.items()}
-    target_words = {i: w for w, i in target_word_ids.items()}
+    target = {i: w for w, i in target_ids.items()}
     source_char_ids = load_vocabulary(args.SOURCE_CHAR_VOCAB)
-    target_char_ids = load_vocabulary(args.TARGET_CHAR_VOCAB)
-    #source_chars = {i: w for w, i in source_char_ids.items()}
-    target_chars = {i: w for w, i in target_char_ids.items()}
-    train_source = load_data(source_word_ids, source_char_ids, args.SOURCE)
-    train_target = load_data(target_word_ids, target_char_ids, args.TARGET)
+    source_chars = {i: w for w, i in source_char_ids.items()}
+    train_source = load_data(args.SOURCE)
+    train_target = load_data(args.TARGET)
     assert len(train_source) == len(train_target)
     train_data = [(s, t)
                   for s, t in six.moves.zip(train_source, train_target)
@@ -329,14 +322,13 @@ def main():
     #    [t for _, t in train_data])
 
     print('Source word vocabulary size: %d' % len(source_word_ids))
-    print('Target word vocabulary size: %d' % len(target_word_ids))
     print('Source char vocabulary size: %d' % len(source_char_ids))
-    print('Target char vocabulary size: %d' % len(target_char_ids))
+    print('Target vocabulary size: %d' % len(target_ids))
     print('Train data size: %d' % len(train_data))
     #print('Train source unknown ratio: %.2f%%' % (train_source_unknown * 100))
     #print('Train target unknown ratio: %.2f%%' % (train_target_unknown * 100))
 
-    model = Seq2seq(args.layer, len(source_word_ids), len(target_word_ids), len(source_char_ids), len(target_char_ids), args.unit)
+    model = Seq2seq(args.layer, len(source_word_ids), len(target_ids), len(source_char_ids), args.unit)
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()
         model.to_gpu(args.gpu)
@@ -358,8 +350,8 @@ def main():
         trigger=(args.trigger, 'iteration'))
 
     if args.validation_source and args.validation_target:
-        test_source = load_data(source_word_ids, source_char_ids, args.validation_source)
-        test_target = load_data(target_word_ids, target_char_ids, args.validation_target)
+        test_source = load_data(args.validation_source)
+        test_target = load_data(args.validation_target)
         assert len(test_source) == len(test_target)
         test_data = list(six.moves.zip(test_source, test_target))
         test_data = [(s, t) for s, t in test_data if 0 < len(s) and 0 < len(t)]
@@ -398,13 +390,13 @@ def main():
     trainer.run()
     print('=>finished!')
     
-    model_name = todaydetailf+'-Hybrid-BiGRU.model'
+    model_name = todaydetailf+'-Parallel-BiGRU.model'
     serializers.save_npz(cfg.PATH_TO_MODELS + model_name, model)
     print('=>save the model: '+model_name)
     
     config_name = todaydetailf+'-Hybrid-BiGRU-config.txt'
     f = open(cfg.PATH_TO_MODELS + config_name, 'w')
-    model_params = [str(args.layer), str(len(source_word_ids)), str(len(target_word_ids)), str(len(source_char_ids)), str(len(target_char_ids)), str(args.unit)]
+    model_params = [str(args.layer), str(len(source_word_ids)), str(len(target_ids)), str(len(source_char_ids)), str(args.unit)]
     assert len(model_params)==model.get_n_params()
     f.write("\n".join(model_params))
     f.close()
