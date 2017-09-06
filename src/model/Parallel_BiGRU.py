@@ -107,25 +107,25 @@ class Seq2seq(chainer.Chain):
         char_hidden=[]
         wxs = [np.array([source_word_ids.get(w, UNK) for w in x], dtype=np.int32) for x in xs]
         cxs = [np.array([source_char_ids.get(c, UNK) for c in list("".join(x))]) for x in xs]
-        unk_words = list(map(lambda x,y: np.array(y)[x==UNK] , wxs, xs))
-        unk_xs = list(map(lambda x: np.array([
-            np.array([source_char_ids.get(c, UNK) for c in list(w)], dtype=np.int32)
-            for w in x]), unk_words))
-        unk_pos = [np.where(x==UNK)[0] for x in wxs]
         concat_wxs = np.concatenate(wxs)
+        concat_cxs = np.concatenate(cxs)
         
-        wys = [np.array([target_word_ids.get(w, UNK) for w in y], dtype=np.int32) for y in ys]
+        # Target token can be either a word or a char
+        wcys = [np.array([target_word_ids.get(w, UNK) for w in y], dtype=np.int32) for y in ys]
         
         eos = self.xp.array([EOS], 'i')
-        ys_in = [F.concat([eos, y], axis=0) for y in wys]
-        ys_out = [F.concat([y, eos], axis=0) for y in wys]
+        ys_in = [F.concat([eos, y], axis=0) for y in wcys]
+        ys_out = [F.concat([y, eos], axis=0) for y in wcys]
 
         # Both xs and ys_in are lists of arrays.
-        exs = sequence_embed(self.embed_x, wxs)
-        # Convert an UNK word vector into a char-hidden vector
-        exs = list(map(lambda s, t, u: get_unk_hidden_vector(s, t, u, self.embed_xc, self.char_encoder, char_hidden) , exs, unk_pos, unk_xs))
-        exs_f = exs
-        exs_b = [ex[::-1] for ex in exs]
+        wexs = sequence_embed(self.embed_xw, wxs)
+        cexs = sequence_embed(self.embed_xc, cxs)
+        
+        wexs_f = wexs
+        wexs_b = [wex[::-1] for wex in wexs]
+        cexs_f = cexs
+        cexs_f = [cex[::-1] for cex in cexs]
+        
         eys = sequence_embed(self.embed_y, ys_in)
         
         batch = len(xs)
@@ -236,11 +236,6 @@ class Seq2seq(chainer.Chain):
             char_hidden=[]
             
             wxs = [np.array([source_word_ids.get(w, UNK) for w in x], dtype=np.int32) for x in xs]
-            unk_words = list(map(lambda x,y: np.array(y)[x==UNK] , wxs, xs))
-            unk_xs = list(map(lambda x: np.array([
-                np.array([source_char_ids.get(c, UNK) for c in list(w)], dtype=np.int32)
-                for w in x]), unk_words))
-            unk_pos = [np.where(x==UNK)[0] for x in wxs]
             wx_len = [len(wx) for wx in wxs]
             wx_section = np.cumsum(wx_len[:-1])
             valid_wx_section = np.insert(wx_section, 0, 0)
