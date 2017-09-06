@@ -130,7 +130,7 @@ class Seq2seq(chainer.Chain):
         # Convert an UNK word vector into a char-hidden vector
         exs = list(map(lambda s, t, u: get_unk_hidden_vector(s, t, u, self.embed_xc, self.char_encoder, char_hidden) , exs, unk_pos, unk_xs))
         exs_f = exs
-        exs_b = [ex[::-1] for ex in exs]
+        exs_b = [F.get_item(ex, range(len(ex))[::-1]) for ex in exs]
         eys = sequence_embed(self.embed_y, ys_in)
         
         batch = len(xs)
