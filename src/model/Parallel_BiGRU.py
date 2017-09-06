@@ -19,18 +19,8 @@ from chainer import training
 from chainer.training import extensions
 from chainer import serializers
 
-
-#word-level
 UNK = 0
 EOS = 1
-
-#char-level
-UNK = 0
-BOW = 1   # Boundary 0f Words
-
-#Hyper parameter
-Alpha = 0.5
-Beta = 0.5
 
 target_words = {}
 target_word_ids = {}
@@ -71,9 +61,6 @@ class Seq2seq(chainer.Chain):
         reporter.report({'loss': loss.data}, self)
         perp = self.xp.exp(loss.data)
         reporter.report({'perp': perp}, self)
-        reporter.report({'words':n_w}, self)
-        reporter.report({'chars':n_c}, self)
-        reporter.report({'chars_att':n_c_a}, self)
         print("loss",loss)
         print()
         return loss
@@ -96,9 +83,9 @@ class Seq2seq(chainer.Chain):
         cexs = sequence_embed(self.embed_xc, cxs)
         
         wexs_f = wexs
-        wexs_b = [wex[::-1] for wex in wexs]
+        wexs_b = [F.get_item(wex, range(len(wex))[::-1]) for wex in wexs]
         cexs_f = cexs
-        cexs_b = [cex[::-1] for cex in cexs]
+        cexs_b = [F.get_item(cex, range(len(cex))[::-1]) for cex in cexs]
         
         eys = sequence_embed(self.embed_y, ys_in)
         
@@ -141,8 +128,6 @@ class Seq2seq(chainer.Chain):
             wx_section = np.cumsum(wx_len[:-1])
             valid_wx_section = np.insert(wx_section, 0, 0)
             cxs = [np.array([source_char_ids.get(c, UNK) for c in list("".join(x))], dtype=np.int32) for x in xs]
-            
-            concat_wxs = np.concatenate(wxs)
             
             wexs = sequence_embed(self.embed_xw, wxs)
             cexs = sequence_embed(self.embed_xc, cxs)
@@ -269,16 +254,6 @@ def load_data(word_voc, char_voc, path):
     with open(path) as f:
         for line in bar(f, max_value=n_lines):
             words = line.strip().split()
-            '''
-            array = np.array([word_voc.get(w, UNK) for w in words], dtype=np.int32)
-            unk_words = np.array(words)[array==UNK]
-            unk_array = np.array([
-                np.array([char_voc.get(c, UNK) for c in list(w)], dtype=np.int32)
-                for w in unk_words])
-            array = np.array([array, unk_array])
-            if len(unk_array)!=0:
-                print(array)
-            '''
             data.append(np.array(words))
     return data
 
@@ -376,7 +351,7 @@ def main():
     trainer.extend(extensions.LogReport(trigger=(args.trigger, 'iteration'), log_name='Log-'+todaydetailf+'.txt'),
                    trigger=(args.trigger, 'iteration'))
     trainer.extend(extensions.PrintReport(
-        ['epoch', 'iteration', 'main/words', 'main/chars', 'main/chars_att',
+        ['epoch', 'iteration',
          'main/loss', 'validation/main/loss',
          'main/perp', 'validation/main/perp', 'validation/main/bleu',
          'elapsed_time']),
