@@ -58,7 +58,6 @@ class Seq2seq(chainer.Chain):
         perp = self.xp.exp(loss.data)
         reporter.report({'perp': perp}, self)
         print("loss",loss)
-        print()
         return loss
         
     def CalcLoss(self, xs, ys):
