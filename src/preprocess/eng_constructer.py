@@ -19,14 +19,18 @@ def construct_vocab():
     g = open(cfg.PATH_TO_ENG_Y_TEST)
     word_dic = Dictionary()
     char_dic = Dictionary()
+    target_dic = Dictionary()
     word_dic.add_documents([["UNK","EOS"]])
     char_dic.add_documents([["UNK","BOW"]])
+    target_dic.add_documents([["UNK","BOW"]])
     
     line = f.readline()
     while line:
         sentence = _tokenize(line)
         word_dic.add_documents([sentence])
         char_dic.add_documents([get_chars(line)])
+        target_dic.add_documents([sentence])
+        target_dic.add_documents([get_chars(line)])
         line = f.readline()
     f.close
     
@@ -37,13 +41,15 @@ def construct_vocab():
         char_dic.add_documents([get_chars(line)])
         line = g.readline()
     g.close
-    return list(word_dic.itervalues()), list(char_dic.itervalues())
+    return list(word_dic.itervalues()), list(char_dic.itervalues()), list(target_dic.itervalues())
 
 def main():
-    word_dic, char_dic = construct_vocab()
+    word_dic, char_dic, target_dic = construct_vocab()
     for ng in char_rm_list:
         if ng in char_dic:
             char_dic.remove(ng)
+        if ng in target_dic:
+            target_dic.remove(ng)
     
     f = open(cfg.PATH_TO_ENG_SOURCE_WORD_VOCAB, 'w')
     f.write("\n".join(word_dic))
@@ -58,6 +64,9 @@ def main():
     g = open(cfg.PATH_TO_ENG_TARGET_CHAR_VOCAB, 'w')
     g.write("\n".join(char_dic))
     g.close
+    h = open(cfg.PATH_TO_ENG_TARGET_VOCAB, 'w')
+    h.write("\n".join(target_dic))
+    h.close
     
     print("Successfully constructed!")
 

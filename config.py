@@ -35,6 +35,7 @@ PATH_TO_ENG_SOURCE_WORD_VOCAB = _CUR_DIR + '/data/vocab/eng_source_word_vocab.tx
 PATH_TO_ENG_TARGET_WORD_VOCAB = _CUR_DIR + '/data/vocab/eng_target_word_vocab.txt'
 PATH_TO_ENG_SOURCE_CHAR_VOCAB = _CUR_DIR + '/data/vocab/eng_source_char_vocab.txt'
 PATH_TO_ENG_TARGET_CHAR_VOCAB = _CUR_DIR + '/data/vocab/eng_target_char_vocab.txt'
+PATH_TO_ENG_TARGET_VOCAB = _CUR_DIR + '/data/vocab/eng_target_vocab.txt'
 
 # 学習済みモデル
 
