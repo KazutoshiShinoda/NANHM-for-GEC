@@ -92,7 +92,7 @@ class Seq2seq(chainer.Chain):
         )
         self.n_layers = n_layers
         self.n_units = n_units
-        self.n_params = 6
+        self.n_params = 7
         self.n_sentences = n_sentences
         self.n_process = 0
         self.n_sen = len(str(n_sentences))
@@ -734,8 +734,6 @@ def main():
             print('Please identify the paths to the validation_source and validation_target files.')
         else:
             serializers.load_npz(args.model_path, model)
-            test_source = load_data(source_ids, args.validation_source)
-            test_target = load_data(target_ids, args.validation_target)
             assert len(test_source) == len(test_target)
             test_data = list(six.moves.zip(test_source, test_target))
             test_data = [(s, t) for s, t in test_data if 0 < len(s) and 0 < len(t)]
