@@ -1,6 +1,6 @@
 .envrc
 *.pyc
-AESW*.txt
+*AESW*.txt
 *.model
 convert.py
 *~
