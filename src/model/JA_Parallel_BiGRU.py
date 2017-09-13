@@ -488,6 +488,7 @@ def main():
             print('Please identify the paths to the validation_source and validation_target files.')
         else:
             serializers.load_npz(args.model_path, model)
+            test_source, test_target = load_2data(args.validation_source, args.validation_target)
             assert len(test_source) == len(test_target)
             test_data = list(six.moves.zip(test_source, test_target))
             test_data = [(s, t) for s, t in test_data if 0 < len(s) and 0 < len(t)]
